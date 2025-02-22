@@ -27,6 +27,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     async validate(payload: any) {
         try {
             const user = await this.authService.validateUser(payload.sub);
+            // The returned user object is attached to the request as req.user
             return {
                 id: user.getId(),
                 username: user.getUsername(),

@@ -1,8 +1,8 @@
-import { NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { IUserRepository } from "../ports/user-repository.interface";
 import { User } from "../../domain/models/user.entity";
-import { use } from "passport";
 
+@Injectable()
 export class Userservice {
     constructor(private readonly userRepository: IUserRepository) {}
 

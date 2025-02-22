@@ -21,17 +21,21 @@ import { TimeoutInterceptor } from './common/filters/timeout.interceptor';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: configService.get('DB_TYPE', 'postgres') as any,
-        host: configService.get('DB_HOST', 'localhost'),
-        port: configService.get('DB_PORT', 5432),
-        username: configService.get('DB_USERNAME', 'postgres'),
-        password: configService.get('DB_PASSWORD', 'postgres'),
-        databse: configService.get('DB_NAME', 'movie_management'),
-        entities: [__dirname + '/**/*.typeorm-entity{.ts}'],
-        synchronize: configService.get<boolean>('DB_SYNCHRONIZE', false),
-        logging: configService.get<boolean>('DB_LOGGING', false)
-      })
+      useFactory: (configService: ConfigService) => {
+        const dbConfig = {
+          type: configService.get<string>('DB_TYPE', 'postgres') as 'postgres',
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 5432),
+          username: configService.get<string>('DB_USERNAME', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', 'example'),
+          database: configService.get<string>('DB_NAME', 'movie_management'),
+          entities: [__dirname + '/**/*.typeorm-entity.{ts,js}'],
+          synchronize: configService.get<boolean>('DB_SYNCHRONIZE', false),
+          logging: configService.get<boolean>('DB_LOGGING', false),
+        };
+
+        return dbConfig;
+      },
     }),
 
     // Domain modules
@@ -59,7 +63,7 @@ import { TimeoutInterceptor } from './common/filters/timeout.interceptor';
     }
   ],
 })
-export class AppModule {}
+export class AppModule { }
 
 
 /**

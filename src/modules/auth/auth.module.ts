@@ -22,6 +22,7 @@ import { UserMapper } from "./adapters/secondary/persistence/user.mapper";
 import { UserCreatedHandler } from "./application/event-handlers/user-created.handler";
 import { LoginFailedHandler } from "./application/event-handlers/login-failed.handler";
 import { JwtStrategy } from "./adapters/secondary/security/jwt-adapter/jwt.strategy";
+import { RolesGuard } from "./adapters/secondary/security/utils/guards/roles.guard";
 
 const handlers = [UserCreatedHandler, LoginFailedHandler];
 
@@ -66,7 +67,10 @@ const handlers = [UserCreatedHandler, LoginFailedHandler];
         JwtStrategy,
 
         // Event handlers
-        ...handlers
+        ...handlers,
+
+        // Guard
+       //RolesGuard
     ],
     exports: [AuthService, Userservice]
 })

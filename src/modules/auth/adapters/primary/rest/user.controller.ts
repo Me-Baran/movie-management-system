@@ -12,7 +12,7 @@ import { Roles } from "../../secondary/security/utils/decorators/roles.decorator
 export class UserController {
     constructor(private readonly userService: Userservice) {}
 
-    @Get('id')
+    @Get(':id')
     @Roles('manager') // This attaches metadata('roles': ['manager']) to the method 
     @ApiOperation({summary: 'Get user by ID (managers only)'})
     @ApiResponse({
@@ -31,12 +31,12 @@ export class UserController {
     @ApiResponse({status: 401, description: 'Unauthorized'})
     @ApiResponse({status: 403, description: 'Forbidden - Requires manager role'})
     @ApiResponse({status: 404, description: 'User not found'})
-    async getUserById(@Param('id') id: 'string') {
+    async getUserById(@Param('id') id: string) {
         const user = await this.userService.getUserById(id);
         return {
             id: user.getId(),
             username: user.getUsername(),
-            role: user.getRole(),
+            role: user.getRole().getValue(),
             age: user.getAge()
         };
     }
