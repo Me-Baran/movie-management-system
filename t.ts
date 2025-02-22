@@ -1,36 +1,16 @@
-// src/auth/domain/entities/user.entity.ts
+function Animal() {}
 
+console.log(Animal.prototype)
 
-export class User {
-  private _username: string;
-  private _password: string;
-  
-  // Private constructor forces use of factory methods
-  private constructor(
-    id: string,
-    username: string,
-    password: string
-  ) {
-    this._username = username;
-    this._password = password;
-  }
-  
-  // Factory method for creating a new user
-  public static create(
-    id: string,
-    username: string,
-    password: string,
-  ): User {
-    const user = new User(
-      id,
-      username,
-      password,
-    );
-    
-    return user;
-  }
+Animal.prototype.breathe = () => console.log('Breathing');
 
+function Dog() {}
+Dog.prototype = Object.create(Animal.prototype)
+Dog.prototype.bark = function() {
+    console.log('dfd')
 }
 
-const user = User.create('1','meh','dlksnfkjd')
-console.log(user)
+const dog = new Dog()
+dog.breathe()
+dog.bark()
+console.log(dog instanceof Dog)

@@ -1,99 +1,196 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Movie Management System
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A RESTful API for managing movies, built with NestJS and structured according to Domain-Driven Design principles.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Project Description
 
-## Description
+This Movie Management System allows:
+- User registration and authentication (managers and customers)
+- Movie management with age restrictions and multiple sessions
+- Ticket purchasing
+- Movie watching (with valid tickets)
+- User watch history tracking
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Architecture Overview
 
-## Project setup
+This project follows a Hexagonal Architecture (Ports and Adapters) approach within the Domain-Driven Design methodology:
 
+![Hexagonal Architecture Diagram](https://raw.githubusercontent.com/username/movie-management-system/main/docs/hex-architecture.png)
+
+### Key Components:
+
+1. **Domain Layer (Core):**
+   - Contains business entities, value objects, and domain events
+   - Defines ports (interfaces) that the outside world must implement
+   - Houses core business logic
+
+2. **Application Layer:**
+   - Orchestrates use cases through application services
+   - Implements command handlers to process user intents
+   - Coordinates between domain and infrastructure
+
+3. **Adapters Layer:**
+   - **Primary/Driving Adapters:** REST controllers, GraphQL resolvers, DTOs
+   - **Secondary/Driven Adapters:** Database implementations, external service integrations
+
+## Technology Stack
+
+- **Framework:** NestJS 9.x
+- **Language:** TypeScript 4.x
+- **Database:** PostgreSQL (production), SQLite (testing)
+- **ORM:** TypeORM
+- **Authentication:** JWT, Passport
+- **Testing:** Jest
+- **Documentation:** Swagger/OpenAPI
+- **Architecture Patterns:** Domain-Driven Design, Hexagonal Architecture, CQRS
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 14.x or later
+- npm 7.x or later
+- PostgreSQL (for production)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/movie-management-system.git
+   cd movie-management-system
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Set up environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+4. Start the development server:
+   ```bash
+   npm run start:dev
+   ```
+
+### Testing
+
+Run unit tests:
 ```bash
-$ npm install
+npm test
 ```
 
-## Compile and run the project
-
+Run end-to-end tests:
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run test:e2e
 ```
 
-## Run tests
+### API Documentation
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+Once the application is running, you can access the Swagger documentation at:
+```
+http://localhost:3000/api
 ```
 
-## Deployment
+## Project Structure
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g mau
-$ mau deploy
+```
+src/
+├── modules/                        # Feature modules (bounded contexts)
+│   ├── auth/                       # Authentication bounded context
+│   │   ├── domain/                 # Domain layer (hexagon core)
+│   │   │   ├── models/             # Entities, aggregates, value objects
+│   │   │   ├── events/             # Domain events
+│   │   │   ├── ports/              # Secondary ports (interfaces)
+│   │   │   └── services/           # Domain services
+│   │   ├── application/            # Application layer 
+│   │   │   ├── services/           # Use case orchestration
+│   │   │   └── commands/           # CQRS commands
+│   │   ├── adapters/               # Adapters layer
+│   │   │   ├── primary/            # Driving adapters (controllers)
+│   │   │   └── secondary/          # Driven adapters (repositories)
+│   │   └── auth.module.ts          # NestJS module configuration
+│   ├── movie/                      # Movie management context
+│   └── ticket/                     # Ticket management context
+├── common/                         # Shared code
+│   ├── filters/                    # Global exception filters
+│   ├── interceptors/               # Global interceptors
+│   └── decorators/                 # Custom decorators
+└── main.ts                         # Application entry point
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Implementation Approach
 
-## Resources
+### Domain-Driven Design
 
-Check out a few resources that may come in handy when working with NestJS:
+The application is structured around key business domains:
+1. **Authentication Domain:** User management, login, registration
+2. **Movie Domain:** Movie creation, updates, sessions
+3. **Ticket Domain:** Ticket purchases, validation
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Each domain follows Clean Architecture principles with clear separation of:
+- **Domain Models:** Pure business logic
+- **Application Services:** Use case orchestration
+- **Infrastructure:** Technical implementations (databases, external services)
 
-## Support
+### Hexagonal Architecture
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+The hexagonal architecture (ports and adapters) allows us to:
+- Keep the domain layer free from infrastructure concerns
+- Easily replace implementation details (e.g., database, security providers)
+- Make the system more testable by mocking adapters
+- Maintain a clear boundary between business logic and technical implementations
 
-## Stay in touch
+## Development Decisions
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+1. **Authentication Strategy:**
+   - JWT-based authentication for stateless API interactions
+   - Role-based access control (RBAC) for authorization
+   - Strong password hashing with bcrypt
+
+2. **Database Approach:**
+   - Repository pattern for data access abstraction
+   - TypeORM for database interactions with clear domain separation
+   - Entities mapped properly to domain objects
+
+3. **Error Handling:**
+   - Centralized exception handling
+   - Domain-specific exceptions
+   - Proper HTTP status codes and error messages
+
+4. **Performance Considerations:**
+   - Optimized database queries
+   - Proper indexing strategy
+   - Request timeout handling
+
+## Challenges Faced
+
+During development, several challenges were addressed:
+
+1. **Maintaining Clean Architecture:**
+   - Ensuring domain models remain free of infrastructure concerns
+   - Avoiding anemic domain models by placing business logic appropriately
+
+2. **TypeORM Integration:**
+   - Properly mapping between domain entities and ORM entities
+   - Managing relations while respecting domain boundaries
+
+3. **Testing Strategy:**
+   - Creating effective unit tests for domain logic
+   - Setting up integration tests with a test database
+   - Mocking external dependencies appropriately
+
+## Future Improvements
+
+1. **Caching Layer:** Implement Redis caching for frequently accessed data
+2. **Session Conflict Detection:** Advanced algorithm to prevent double-booking
+3. **Recommendation System:** Movie recommendations based on watch history
+4. **Reporting Module:** Advanced analytics for managers
+5. **Microservices Architecture:** Split into microservices for better scalability
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+This project is licensed under the MIT License - see the LICENSE file for details.
