@@ -27,24 +27,15 @@ jobs:
         cache: 'npm'
     - run: npm ci
     - run: npm run build --if-present
-    - name: Debug
-      run: find src -name "*.spec.ts" | sort
+    - name: Debug repository structure
+      run: |
+        echo "All .spec.ts files in repository:"
+        find . -name "*.spec.ts" | sort
+        echo "Directory structure of src/modules:"
+        ls -la src/modules || echo "modules directory not found"
+        echo "Auth module structure (if exists):"
+        ls -la src/modules/auth || echo "auth directory not found"
+        echo "Test directory structure (if exists):"
+        ls -la src/modules/auth/test || echo "test directory not found"
     - run: npm test
 
-  build:
-    name: Build
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Use Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18.x'
-        cache: 'npm'
-    - name: Install dependencies
-      run: npm ci
-    - name: Build
-      run: npm run build
