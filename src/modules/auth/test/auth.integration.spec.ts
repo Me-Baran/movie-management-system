@@ -155,7 +155,6 @@ describe('Auth Integration Tests', () => {
                 .get(`/users/${userId}`)
                 .set('Authorization', `Bearer ${authToken}`)
                 .expect(200);
-            console.log(response)
             expect(response.body.id).toBe(userId);
             expect(response.body.username).toBe('testmanager');
         });
