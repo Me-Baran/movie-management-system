@@ -27,15 +27,5 @@ jobs:
         cache: 'npm'
     - run: npm ci
     - run: npm run build --if-present
-    - name: Debug repository structure
-      run: |
-        echo "All .spec.ts files in repository:"
-        find . -name "*.spec.ts" | sort
-        echo "Directory structure of src/modules:"
-        ls -la src/modules || echo "modules directory not found"
-        echo "Auth module structure (if exists):"
-        ls -la src/modules/auth || echo "auth directory not found"
-        echo "Test directory structure (if exists):"
-        ls -la src/modules/auth/test || echo "test directory not found"
     - run: npm test
 
