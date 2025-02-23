@@ -9,6 +9,8 @@ import { DeleteMovieCommand } from "../commands/delete-movie.command";
 import { AddSessionCommand } from "../commands/add-session.command";
 import { Session } from "../../domain/models/session.entity";
 import { TimeSlot } from "../../domain/models/time-slot.value-object";
+import { BulkCreateMoviesCommand } from "../commands/bulk-create-movies.command";
+import { BulkDeleteMoviesCommand } from "../commands/bulk-delete-movies.command";
 
 @Injectable()
 export class MovieService {
@@ -60,7 +62,7 @@ export class MovieService {
     }
 
     async addSession(command: AddSessionCommand): Promise<Movie> {
-        const {movieId, date, timeSlot, roomNumber, availableSeats} = command;
+        const { movieId, date, timeSlot, roomNumber, availableSeats } = command;
 
         const movie = await this.movieRepository.findById(movieId);
         if (!movie) {
@@ -92,7 +94,7 @@ export class MovieService {
         try {
             movie.addSession(session);
             return await this.movieRepository.save(movie);
-        } catch(error) {
+        } catch (error) {
             throw new ConflictException(error.message);
         }
     }
@@ -131,5 +133,54 @@ export class MovieService {
 
         session.bookSeats(numberOfSeats);
         await this.movieRepository.save(movie);
+    }
+
+    async bulkCreateMovies(command: BulkCreateMoviesCommand): Promise<Movie[]> {
+        const { movies } = command;
+        const createdMovies: Movie[] = [];
+        const errors: { index: number; error: string }[] = [];
+
+        for (let i = 0; i < movies.length; i++) {
+            try {
+                const movie = Movie.create(
+                    uuidv4(),
+                    movies[i].name,
+                    movies[i].ageRestriction
+                );
+                const savedMovie = await this.movieRepository.save(movie);
+                createdMovies.push(savedMovie);
+            } catch (error) {
+                errors.push({ index: i, error: error.message });
+            }
+        }
+
+        if (errors.length > 0) {
+            throw new BadRequestException({
+                message: 'Some movies failed to create',
+                errors,
+                createdMovies
+            });
+        }
+
+        return createdMovies;
+    }
+
+    async bulkDeleteMovies(command: BulkDeleteMoviesCommand): Promise<string[]> {
+        // First verify all movies exist
+        for (const id of command.movieIds) {
+            const exists = await this.movieRepository.existsById(id);
+            if (!exists) {
+                throw new NotFoundException(`Movie with ID ${id} not found`);
+            }
+        }
+
+        // Then delete all
+        const deleted: string[] = [];
+        for (const id of command.movieIds) {
+            await this.movieRepository.delete(id);
+            deleted.push(id);
+        }
+
+        return deleted;
     }
 }

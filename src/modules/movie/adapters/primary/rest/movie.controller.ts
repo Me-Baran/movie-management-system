@@ -15,34 +15,88 @@ import { session } from "passport";
 import { AgeRestriction } from "src/modules/movie/domain/models/age-restriction.value-object";
 import { FilterMoviesDto } from "../dtos/filter-movies.dto";
 import { CurrentUser } from "src/modules/auth/adapters/primary/rest/decorators/current-user.decorator";
+import { BulkCreateMoviesDto } from "../dtos/bulk-create-movies.dto";
+import { BulkCreateMoviesCommand } from "src/modules/movie/application/commands/bulk-create-movies.command";
+import { BulkDeleteMoviesDto } from "../dtos/bulk-delete-movies.dto";
+import { BulkDeleteMoviesCommand } from "src/modules/movie/application/commands/bulk-delete-movies.command";
 
 @ApiTags('movies')
 @Controller('movies')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class MovieController {
-    constructor(private readonly movieService: MovieService) {}
+    constructor(private readonly movieService: MovieService) { }
+
+
+    @Post('bulk')
+    @Roles('manager')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Create multiple movies (managers only)' })
+    @ApiResponse({
+        status: 201,
+        description: 'Movies created successfully',
+        schema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string' },
+                    ageRestriction: { type: 'number' },
+                    createdAt: { type: 'string', format: 'date-time' }
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 400, description: 'Bad request' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 403, description: 'Forbidden - Requires manager role' })
+    async bulkCreateMovies(@Body() dto: BulkCreateMoviesDto) {
+        const command = new BulkCreateMoviesCommand(dto.movies);
+        const movies = await this.movieService.bulkCreateMovies(command);
+
+        return movies.map(movie => ({
+            id: movie.getId(),
+            name: movie.getName(),
+            ageRestriction: movie.getAgeRestriction().getValue(),
+            createdAt: movie.getCreatedAt()
+        }));
+    }
+
+    @Delete('bulk')
+    @Roles('manager')
+    @UseGuards(RolesGuard)
+    @HttpCode(HttpStatus.NO_CONTENT)
+    @ApiOperation({ summary: 'Delete multiple movies (managers only)' })
+    @ApiResponse({ status: 204, description: 'Movies deleted successfully' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 403, description: 'Forbidden - Requires manager role' })
+    @ApiResponse({ status: 404, description: 'One or more movies not found' })
+    async bulkDeleteMovies(@Body() dto: BulkDeleteMoviesDto): Promise<void> {
+        const command = new BulkDeleteMoviesCommand(dto.movieIds);
+        await this.movieService.bulkDeleteMovies(command);
+    }
 
     @Post()
     @Roles('manager')
     @UseGuards(RolesGuard)
-    @ApiOperation({summary: 'Create a new movie (managers only)'})
+    @ApiOperation({ summary: 'Create a new movie (managers only)' })
     @ApiResponse({
         status: 201,
         description: 'Movie created successfully',
         schema: {
             type: 'object',
             properties: {
-                id: {type: 'string'},
-                name: {type: 'string'},
-                ageRestriction: {type: 'number'},
-                createdAt: {type: 'string', format: 'date-time'}
+                id: { type: 'string' },
+                name: { type: 'string' },
+                ageRestriction: { type: 'number' },
+                createdAt: { type: 'string', format: 'date-time' }
             }
         }
     })
-    @ApiResponse({status: 400, description: 'Bad request'})
-    @ApiResponse({status: 401, description: 'Unauthorized'})
-    @ApiResponse({status: 403, description: 'Forbidden - Requires manager role'})
+    @ApiResponse({ status: 400, description: 'Bad request' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 403, description: 'Forbidden - Requires manager role' })
     async createMovie(@Body() createMovieDto: CreateMovieDto) {
         const command = new CreateMovieCommand(
             createMovieDto.name,
@@ -114,16 +168,16 @@ export class MovieController {
     @Post(':id/sessions')
     @Roles('manager')
     @UseGuards(RolesGuard)
-    @ApiOperation({summary: 'Add a session to a movie (managers only'})
+    @ApiOperation({ summary: 'Add a session to a movie (managers only' })
     @ApiResponse({
         status: 201,
         description: 'Session added successfully',
         schema: {
             type: 'object',
             properties: {
-                id: {type: 'string'},
-                name: {type: 'string'},
-                ageRestriction: {type: 'number'},
+                id: { type: 'string' },
+                name: { type: 'string' },
+                ageRestriction: { type: 'number' },
                 sessions: {
                     type: 'array',
                     items: {
@@ -212,7 +266,7 @@ export class MovieController {
                 filterDto.maxAge = Math.min(filterDto.maxAge, user.age);
             } else {
                 // we always filter based on age even though no max age filter is provided
-                filterDto.maxAge =user.age
+                filterDto.maxAge = user.age
             }
         }
 
@@ -266,7 +320,7 @@ export class MovieController {
     @ApiResponse({ status: 404, description: 'Movie not found' })
     async getMovieById(@Param('id') id: string, @CurrentUser() user: any) {
         const movie = await this.movieService.getMovieById(id);
-        
+
         // For customer role, check age restriction
         if (user.role === 'customer' && !movie.isAllowedForAge(user.age)) {
             throw new HttpException('Age restriction prevents access to this movie', HttpStatus.FORBIDDEN);
@@ -287,4 +341,5 @@ export class MovieController {
             }))
         };
     }
+
 }

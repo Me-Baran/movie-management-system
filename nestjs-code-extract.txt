@@ -1,0 +1,5481 @@
+# NestJS Code Extraction
+
+
+
+## File: src/app.controller.spec.ts
+```
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+describe('AppController', () => {
+  let appController: AppController;
+
+  beforeEach(async () => {
+    const app: TestingModule = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile();
+
+    appController = app.get<AppController>(AppController);
+  });
+
+  describe('root', () => {
+    it('should return "Hello World!"', () => {
+      expect(appController.getHello()).toBe('Hello World!');
+    });
+  });
+});
+
+```
+
+
+## File: src/app.controller.ts
+```
+import { Controller, Get } from '@nestjs/common';
+import { AppService } from './app.service';
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello();
+  }
+}
+
+```
+
+
+## File: src/app.module.ts
+```
+import { HttpException, Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthModule } from './modules/auth/auth.module';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/filters/logging.interceptor';
+import { TimeoutInterceptor } from './common/filters/timeout.interceptor';
+import { MovieModule } from './modules/movie/movie.module';
+import { TicketModule } from './modules/ticket/ticket.module';
+
+@Module({
+  imports: [
+    // Configuration module
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: `.env${process.env.NODE_ENV ? '.' + process.env.NODE_ENV : ''}`
+    }),
+
+    // Database
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const dbConfig = {
+          type: configService.get<string>('DB_TYPE', 'postgres') as 'postgres',
+          host: configService.get<string>('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 5432),
+          username: configService.get<string>('DB_USERNAME', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', 'example'),
+          database: configService.get<string>('DB_NAME', 'movie_management'),
+          entities: [__dirname + '/**/*.typeorm-entity.{ts,js}'],
+          synchronize: configService.get<boolean>('DB_SYNCHRONIZE', false),
+          logging: configService.get<boolean>('DB_LOGGING', false),
+        };
+
+        return dbConfig;
+      },
+    }),
+
+    // Domain modules
+    AuthModule,
+    MovieModule,
+    TicketModule
+
+  ],
+  controllers: [AppController],
+  providers: [
+    AppService,
+    // Global exception filter
+    {
+      provide: APP_FILTER, // [1]
+      useClass: HttpExceptionFilter
+    },
+    // Global interceptors
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TimeoutInterceptor
+    }
+  ],
+})
+export class AppModule { }
+
+
+/**
+ * When a request comes in, interceptors are executed in the order they're registered (LoggingInterceptor → TimeoutInterceptor)
+When a response goes out, they're executed in reverse order (TimeoutInterceptor → LoggingInterceptor)
+
+This pattern allows you to apply cross-cutting concerns (logging, timeout handling, etc.) globally 
+without repeating code in individual controllers or routes.
+
+The APP_* tokens are special injection tokens provided by NestJS's core that enable framework-level integration
+PP_FILTER and APP_INTERCEPTOR allow for global registration of application components
+ */
+```
+
+
+## File: src/app.service.ts
+```
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {
+  getHello(): string {
+    return 'Hello World!';
+  }
+}
+
+```
+
+
+## File: src/common/filters/http-exception.filter.ts
+```
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from "@nestjs/common";
+import { Request, Response } from "express";
+
+@Catch(HttpException)
+export class HttpExceptionFilter implements ExceptionFilter {
+    private readonly logger = new Logger(HttpExceptionFilter.name);
+
+    /**
+     * Handles HTTP exceptions thrown by the application.
+     * Transforms the exception into a structured JSON response containing
+     * the status code, timestamp, request path, HTTP method, and error message.
+     * Logs the exception details using the application's logger.
+     * 
+     * @param exception - The HttpException being caught.
+     * @param host - The execution context containing request and response objects.
+     */
+
+    catch(exception: HttpException, host: ArgumentsHost) { // [1]
+        const ctx = host.switchToHttp();
+        const response = ctx.getResponse<Response>();
+        const request = ctx.getRequest<Request>();
+        const status = exception.getStatus();
+        const errorResponse = exception.getResponse();
+
+        const error = {
+            statusCode: status,
+            timestamp: new Date().toISOString(),
+            path: request.url,
+            method: request.method,
+            ...(typeof errorResponse === 'object' ? errorResponse : {message: errorResponse})
+        }
+
+        // Log error information
+        this.logger.error(
+            `HTTP Exception: ${status} - ${request.method} ${request.url}`,
+            typeof errorResponse === 'object'
+                ? JSON.stringify(errorResponse)
+                : errorResponse,
+            exception.stack
+        );
+
+        response.status(status).json(error);
+    }
+}
+
+/**
+ * [1]:
+ * - ctx: ExecutionContext:
+ * ExecutionContext is a wrapper that can represent different transport layers:
+ * - HTTP contexts (REST API)
+ * - WebSocket contexts
+ * - Microservice contexts (gRPC, Redis, MQTT, etc.)
+ * - GraphQL contexts
+ * 
+ * - host: ArgumentsHost:
+ * ArgumentHost object is a wrapper around ExecutionContext that provides access to request and response objects
+ * methods:
+ * - switchToHttp(): Switches to HTTP-specific context to access request/response objects
+ * - getRequest(): Returns the request object associated with the current context
+ * - getResponse(): Returns the response object associated with the current context
+
+ * exception: 
+ * - HttpException: Exception thrown by the application
+ * - status: Status code of the HTTP response
+ * - getStatus(): Returns the status code of the HTTP response
+ * - getResponse(): Returns the response object associated with the current context
+ */
+```
+
+
+## File: src/common/filters/logging.interceptor.ts
+```
+import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from "@nestjs/common";
+import { Observable } from "rxjs";
+import { tap } from "rxjs";
+
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor { // Implements the NestInterceptor interface, indicating it will intercept requests/responses
+    private readonly logger = new Logger(LoggingInterceptor.name);
+
+    /**
+     * Log the request and response details.
+     *
+     * The request details logged include: HTTP method, URL, user who made the request.
+     * The response details logged include: HTTP method, URL, time taken to respond in milliseconds, user who made the request.
+     *
+     * @param context ExecutionContext of the request
+     * @param next CallHandler to handle the request
+     * @returns Observable of the response
+     */
+    intercept(context: ExecutionContext, next: CallHandler): Observable<any> { //Observable: Represents an asynchronous data stream
+        const req = context.switchToHttp().getRequest();
+        const method = req.method;
+        const url = req.url;
+        const now = Date.now();
+        const userInfo = req.user ? `user:${req.user.username}` : 'anonymous';
+
+        this.logger.log(`Request: ${method} ${url} - ${userInfo}`);
+
+        return next // next: Represents the next step in the request pipeline
+            .handle() // The request is passed to the next handler in the chain with next.handle()
+                      // next.handle() returns an Observable that will emit the response when ready
+            .pipe( // .pipe(tap(() => {...})) chains an operator that will execute after the response is generated
+                   // this is to perform operations after the request has been processed but before the response is sent to the client.
+                tap(() => { // tap: An RxJS operator that allows side effects without modifying the stream
+                    const responseTime = Date.now() - now;
+                    this.logger.log(`Response: ${method} ${url} - ${responseTime}ms - ${userInfo}`)
+                })
+            )
+    }
+}
+```
+
+
+## File: src/common/filters/timeout.interceptor.ts
+```
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor, RequestTimeoutException } from "@nestjs/common";
+import { catchError, Observable, throwError, timeout, TimeoutError } from "rxjs"; // [1]
+
+@Injectable()
+export class TimeoutInterceptor implements NestInterceptor {
+    intercept(context: ExecutionContext, next: CallHandler<any>): Observable<any> {
+        return next.handle()
+            .pipe(
+                timeout(30000),
+                catchError(err => { // Catches any errors that occur in the pipeline
+                    if (err instanceof TimeoutError) {
+                        return throwError(() => new RequestTimeoutException('Request timeout'));
+                    }
+                    return throwError(() => err); // For all other errors, re-throws them without modification
+                })
+            )
+    }
+}
+
+
+/**
+ * [1]
+ * RxJS in NestJS Interceptors
+ * 
+ * NestJS's interceptor interface is designed to work with RxJS Observables,
+ * and the reactive programming model provides elegant mechanisms for timeouts
+ * and error handling.
+ * 
+ * If attempting to avoid RxJS, alternative approaches would require:
+ * 1. Creating a middleware instead of an interceptor
+ * 2. Implementing custom timeout logic using JavaScript's `setTimeout`
+ * 3. Clearing the timeout when the request completes
+ * 4. Handling errors manually
+ */
+```
+
+
+## File: src/main.ts
+```
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
+import * as compression from 'compression';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+
+async function bootstrap() {
+  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule);
+
+  // Global middleware
+  app.use(helmet());
+  app.use(compression());
+  app.enableCors();
+
+  // Global pipes
+  app.useGlobalPipes( // [1]
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true
+    })
+  )
+
+  // Swagger documentation
+  const config = new DocumentBuilder()
+    .setTitle('Movie management system API')
+    .setDescription('RESTful API for managing movies, users and tickets')
+    .setVersion('1.0')
+    .addTag('auth', 'Authentication endpoints')
+    .addTag('users', 'User management endpoints')
+    .addTag('movies', 'Movie management endpoints')
+    .addTag('tickets', 'Ticket purchase and management')
+    .addBearerAuth()
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  // Set the api path for serving swagger documentation
+  SwaggerModule.setup('api', app, document);
+
+  // Start the server
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  logger.log(`Application listening on port ${port}`)
+}
+bootstrap();
+
+
+/**
+ * [1]:
+ *
+ * whitelist: true
+ *
+ * Automatically removes any properties from the request body that don't have a matching property in the DTO (Data Transfer Object) class.
+ * Helps prevent unwanted or potentially malicious properties from being passed to your application.
+ *
+ * forbidNonWhitelisted: true
+ *
+ * Rather than just silently stripping non-whitelisted properties, this option makes the validation throw an error if any non-whitelisted properties are present.
+ * Provides stronger protection and gives clear feedback to API consumers when they send invalid data.
+ *
+ * transform: true
+ *
+ * Automatically transforms incoming payload to be an instance of the DTO class.
+ * Converts primitive types to their JavaScript types according to the type declarations in your DTO (e.g., string "123" to number 123).
+ * Enables automatic conversion of query parameters and path parameters to the correct types.
+ * Makes it easier to work with typed objects throughout your application.
+ */
+
+```
+
+
+## File: src/modules/auth/adapters/primary/dtos/login.dto.ts
+```
+import { ApiProperty } from "@nestjs/swagger";
+import { IsNotEmpty, IsString } from "class-validator";
+
+export class LoginDto {
+    @ApiProperty({
+        description: 'Username fro login',
+        example: 'johnsmith'
+    })
+    @IsNotEmpty()
+    @IsString()
+    username: string;
+    
+
+    @ApiProperty({
+        description: 'User password',
+        example: 'StrongPassword123@'
+    })
+    @IsNotEmpty()
+    @IsString()
+    password: string;
+}
+```
+
+
+## File: src/modules/auth/adapters/primary/dtos/register-user.dto.ts
+```
+import { ApiProperty } from "@nestjs/swagger";
+import { IsEnum, IsInt, IsNotEmpty, IsString, Min } from "class-validator";
+
+enum UserRole {
+    MANAGER = 'manager',
+    CUSTOMER = 'customer'
+}
+
+export class RegisterUserDto {
+    @ApiProperty({
+        description: 'Username for registeration',
+        example: 'johnsmith'
+    })
+    @IsNotEmpty()
+    @IsString()
+    username: string;
+
+    @ApiProperty({
+        description: 'User password',
+        example: 'StrongPassword123@'
+    })
+    @IsNotEmpty()
+    @IsString()
+    password: string;
+
+    @ApiProperty({
+        description: 'User age',
+        example: 18,
+        minimum: 1
+    })
+    @IsInt()
+    @IsNotEmpty()
+    @Min(1)
+    age: number;
+
+    @ApiProperty({
+        description: 'User role',
+        example: 'manager',
+        enum: UserRole
+    })
+    @IsNotEmpty()
+    @IsString()
+    @IsEnum(['manager', 'customer'])
+    role: UserRole;
+}
+```
+
+
+## File: src/modules/auth/adapters/primary/rest/auth.controller.ts
+```
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { AuthService } from "src/modules/auth/application/services/auth.service";
+import { LoginDto } from "../dtos/login.dto";
+import { Request } from "express";
+import { LoginCommand } from "src/modules/auth/application/commands/login.command";
+import { RegisterUserDto } from "../dtos/register-user.dto";
+import { RegisterUserCommand } from "src/modules/auth/application/commands/register-user.command";
+import { JwtAuthGuard } from "../../secondary/security/jwt-adapter/jwt-auth.guard";
+import { CurrentUser } from "./decorators/current-user.decorator";
+
+@ApiTags('auth')
+@Controller('auth')
+export class AuthController {
+    constructor(private readonly authService: AuthService) {}
+
+    // Login endpoint
+    @Post('login')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({summary: 'User login'})
+    @ApiResponse({
+        status: 200,
+        description: 'Login successfull',
+        schema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                username: {type: 'string'},
+                role: {type: 'string'},
+                age: {type: 'number'}
+            }
+        }
+    })
+    @ApiResponse({status: 401, description: 'Invalid credentials'})
+    async login(@Body() loginDto: LoginDto, @Req() request: Request) {
+        const ipAddress = request.ip || 'unknown';
+        const command = new LoginCommand(
+            loginDto.username,
+            loginDto.password,
+            ipAddress,
+        );
+        return this.authService.login(command);
+    }
+
+
+    // Register endpoint
+    @Post('register')
+    @ApiOperation({summary: 'Register new user'})
+    @ApiResponse({
+        status: 201,
+        description: 'User registered successfully',
+        schema: {
+            type: 'object',
+            properties: {
+                id: {type: 'string'},
+                username: {type: 'string'},
+                role: {type: 'string'},
+                age: {type: 'number'},
+                createdAt: {type: 'string', format: 'date-time'}
+            }
+        }
+    })
+    @ApiResponse({status: 400, description: 'Bad request'})
+    @ApiResponse({status: 409, description: 'Username already exists'})
+    async register(@Body() registerDto: RegisterUserDto) {
+        const command = new RegisterUserCommand(
+            registerDto.username,
+            registerDto.password,
+            registerDto.age,
+            registerDto.role
+        );
+
+        const user = await this.authService.register(command);
+
+        return {
+            id: user.getId(),
+            username: user.getUsername(),
+            role: user.getRole().getValue(),
+            age: user.getAge(),
+            createdAt: user.getCreatedAt()
+        }
+    }
+
+    @Get('profile')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({summary: 'Get current user profile'})
+    @ApiResponse({
+        status: 200,
+        description: 'User profile retrieved successfully',
+        schema: {
+            type: 'object',
+            properties: {
+                id: {type: 'string'},
+                username: {type: 'string'},
+                role: {type: 'string'},
+                age: {type: 'string'}
+            }
+        }
+    })
+    @ApiResponse({status: 401, description: 'Unauthorized'})
+    async getProfile(@CurrentUser() user: any) {
+        return {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            age: user.age
+        };
+    }
+}
+```
+
+
+## File: src/modules/auth/adapters/primary/rest/decorators/current-user.decorator.ts
+```
+import { createParamDecorator, ExecutionContext } from "@nestjs/common";
+
+export const CurrentUser = createParamDecorator(
+    (data: unknown, ctx: ExecutionContext) => {
+        const request = ctx.switchToHttp().getRequest();
+        return request.user;
+    }
+)
+```
+
+
+## File: src/modules/auth/adapters/primary/rest/user.controller.ts
+```
+import { Controller, Get, Param, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiResetContentResponse, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { JwtAuthGuard } from "../../secondary/security/jwt-adapter/jwt-auth.guard";
+import { RolesGuard } from "../../secondary/security/utils/guards/roles.guard";
+import { Userservice } from "src/modules/auth/application/services/user.service";
+import { Roles } from "../../secondary/security/utils/decorators/roles.decorator";
+
+@ApiTags('users')
+@Controller('users')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth()
+export class UserController {
+    constructor(private readonly userService: Userservice) {}
+
+    @Get(':id')
+    @Roles('manager') // This attaches metadata('roles': ['manager']) to the method 
+    @ApiOperation({summary: 'Get user by ID (managers only)'})
+    @ApiResponse({
+        status: 200,
+        description: 'User found',
+        schema: {
+            type: 'object',
+            properties: {
+                id: {type: 'string'},
+                username: {type: 'string'},
+                role: {type: 'string'},
+                age: {type: 'number'}
+            }
+        }
+    })
+    @ApiResponse({status: 401, description: 'Unauthorized'})
+    @ApiResponse({status: 403, description: 'Forbidden - Requires manager role'})
+    @ApiResponse({status: 404, description: 'User not found'})
+    async getUserById(@Param('id') id: string) {
+        const user = await this.userService.getUserById(id);
+        return {
+            id: user.getId(),
+            username: user.getUsername(),
+            role: user.getRole().getValue(),
+            age: user.getAge()
+        };
+    }
+}
+```
+
+
+## File: src/modules/auth/adapters/secondary/persistence/typeorm-user.repository.ts
+```
+import { InjectRepository } from "@nestjs/typeorm";
+import { IUserRepository } from "src/modules/auth/application/ports/user-repository.interface";
+import { UserTypeormEntity } from "./user.typeorm-entity";
+import { Repository } from "typeorm";
+import { UserMapper } from "./user.mapper";
+import { User } from "src/modules/auth/domain/models/user.entity";
+
+// We implement IUserRepository interface(port) from user domain in persistence adapter, 
+// meaning we put the methods of port into effect here
+export class TypeormUserRepository implements IUserRepository {
+    constructor(
+        @InjectRepository(UserTypeormEntity)
+        private readonly userRepository: Repository<UserTypeormEntity>,
+        private readonly userMapper: UserMapper
+    ) {}
+
+    async save(user: User): Promise<User> {
+        const userEntity = this.userMapper.toPersistence(user);
+        const savedEntity = await this.userRepository.save(userEntity);
+        const domainUser = this.userMapper.toDomain(savedEntity);
+
+        if (!domainUser) {
+            throw new Error('Failed to map saved Entity back to domain model');
+        }
+       
+        return domainUser;
+    }
+
+    async findById(id: string): Promise<User | null> {
+        const userEntity = await this.userRepository.findOne({where: {id}});
+        return userEntity ? this.userMapper.toDomain(userEntity) : null;
+    }
+
+    async findByUsername(username: string): Promise<User | null> {
+        const userEntity = await this.userRepository.findOne({where: {username}});
+        return userEntity ? this.userMapper.toDomain(userEntity) : null;
+    }
+
+    async exists(username: string): Promise<boolean> {
+        const count = await this.userRepository.count({where: {username}});
+        return count > 0;
+    }
+}
+```
+
+
+## File: src/modules/auth/adapters/secondary/persistence/user.mapper.ts
+```
+import { Injectable } from "@nestjs/common";
+import { UserTypeormEntity } from "./user.typeorm-entity";
+import { User } from "src/modules/auth/domain/models/user.entity";
+import { Role } from "src/modules/auth/domain/models/role.value-object";
+import { Credentials } from "src/modules/auth/domain/models/credentials.value-object";
+
+// bidirectional Data Mapper between domain object layer and data source layer
+@Injectable()
+export class UserMapper {
+    /**
+     * Maps a UserTypeormEntity to a User domain object
+     * @param userEntity The UserTypeormEntity to map
+     * @returns The mapped User domain object, or null if userEntity is null
+     */
+    toDomain(userEntity: UserTypeormEntity): User | null {
+        if (!userEntity) return null;
+
+        const role = Role.fromString(userEntity.role);
+        const credentials = new Credentials(userEntity.password);
+
+        const user = new User(
+            userEntity.id,
+            userEntity.username,
+            credentials,
+            userEntity.age,
+            role,
+            userEntity.createdAt
+        );
+
+        return user;
+    }
+
+    /**
+     * Maps a User domain object to a UserTypeormEntity
+     * @param user The User domain object to map
+     * @returns The mapped UserTypeormEntity
+     */
+    toPersistence(user: User): UserTypeormEntity {
+        // Create instance first, lets proper initialization of any internal state before assigning properties
+        const userEntity = new UserTypeormEntity();
+        userEntity.id = user.getId();
+        userEntity.username = user.getUsername();
+        userEntity.password = user.getCredentials().getHashedPassword();
+        userEntity.age = user.getAge();
+        userEntity.role = user.getRole().getValue();
+        userEntity.watchHistory = user.getWatchHistory();
+
+        return userEntity;
+    }
+}
+```
+
+
+## File: src/modules/auth/adapters/secondary/persistence/user.typeorm-entity.ts
+```
+import { Column, CreateDateColumn, Entity, PrimaryColumn, UpdateDateColumn } from "typeorm";
+
+@Entity('users')
+export class UserTypeormEntity {
+    @PrimaryColumn('uuid')
+    id: string;
+
+    @Column({unique:true})
+    username: string;
+
+    @Column()
+    password: string;
+
+    @Column()
+    age: number;
+
+    @Column()
+    role: string;
+
+    @Column('json', {nullable: true, default: '[]'})
+    watchHistory: string[];
+
+    @CreateDateColumn()
+    createdAt: Date;
+
+    @UpdateDateColumn()
+    updatedAt: Date;
+}
+```
+
+
+## File: src/modules/auth/adapters/secondary/security/jwt-adapter/jwt-auth.guard.ts
+```
+import { Injectable } from "@nestjs/common";
+import { AuthGuard } from "@nestjs/passport";
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}
+```
+
+
+## File: src/modules/auth/adapters/secondary/security/jwt-adapter/jwt-token.service.ts
+```
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
+import { ITokenService } from "src/modules/auth/application/ports/token-service.interface";
+
+@Injectable()
+export class JwtTokenService implements ITokenService {
+    constructor(
+        private readonly jwtService: JwtService,
+        private readonly configService: ConfigService
+    ) {}
+
+    async generateToken(payload: Record<string, any>): Promise<string> {
+        return this.jwtService.signAsync(payload, {
+            secret: this.configService.get<string>('JWT_SECRET'),
+            expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '1h')
+        });
+    }
+
+    // Not needed here, validation is automatically done by jwt-strategy validate method during req-res cycle
+    // But if other domain apps need to validate token but does not have access to auth infrastructure
+    // Also this makes unit testing jwt verification possible without passport.js infrastructure
+    async validateToken(token: string): Promise<Record<string, any>> {
+        try {
+            return await this.jwtService.verifyAsync(token, {
+                secret: this.configService.get<string>('JWT_SECRET')
+            });
+        } catch (error) {
+            throw new Error('Invalid token');
+        }
+    }
+}
+```
+
+
+## File: src/modules/auth/adapters/secondary/security/jwt-adapter/jwt.strategy.ts
+```
+import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PassportStrategy } from "@nestjs/passport";
+import { ExtractJwt, Strategy } from "passport-jwt";
+import { AuthService } from "src/modules/auth/application/services/auth.service";
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+    constructor(
+        private readonly configService: ConfigService,
+        private readonly authService: AuthService,
+    ) {
+        const jwtSecret = configService.get<string>('JWT_SECRET');
+
+        if (!jwtSecret) {
+            throw new Error('JWT_SECRET is not defined in the environment variables');
+        }
+
+        super({
+            jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+            ignoreExpiration: false,
+            secretOrKey: jwtSecret,
+        });
+    }
+
+    // JWT automatic validation in request response cycle
+    async validate(payload: any) {
+        try {
+            const user = await this.authService.validateUser(payload.sub);
+            // The returned user object is attached to the request as req.user
+            return {
+                id: user.getId(),
+                username: user.getUsername(),
+                role: user.getRole().getValue(),
+                age: user.getAge()
+            }
+        } catch (error) {
+            throw new UnauthorizedException('Invalid token');
+        }
+    }
+}
+
+/**
+ * Why use passport, how it works:
+ * Passport uses "strategies" for different authentication methods. 
+ * The passport-jwt strategy handles JWT authentication specifically. JwtStrategy class extends the Passport JWT strategy 
+   and configures how tokens should be extracted and validated.
+ * Integration with Guards: NestJS connects Passport strategies to its guard system. When we use AuthGuard('jwt'), 
+   it activates the Passport JWT strategy we've defined.
+ * Request Transformation: Passport automatically attaches the authenticated user to the request object (req.user) 
+   after successful authentication.
+ */
+```
+
+
+## File: src/modules/auth/adapters/secondary/security/password-adapter/bcrypt-password.service.ts
+```
+import { IPasswordService } from "src/modules/auth/application/ports/password.service.interface";
+import * as bcrypt from "bcrypt";
+import { Injectable } from "@nestjs/common";
+
+@Injectable()
+export class BcryptPasswordService implements IPasswordService {
+    private readonly saltRounds = 10;
+
+    async hash(password: string): Promise<string> {
+        return bcrypt.hash(password, this.saltRounds);
+    }
+
+    async compare(plainTextPassword: string, hashedPassword: string): Promise<boolean> {
+        return bcrypt.compare(plainTextPassword, hashedPassword);
+    }
+}
+```
+
+
+## File: src/modules/auth/adapters/secondary/security/utils/decorators/roles.decorator.ts
+```
+import { SetMetadata } from "@nestjs/common";
+
+/**
+ * Key used to store and retrieve role metadata
+ */
+export const ROLES_KEY = 'roles';
+
+/**
+ * Decorator that attaches role information to a class or method's metadata
+ * 
+ * @param roles - List of roles that are allowed to access the route
+ * @returns A decorator function that applies the metadata
+ * 
+ * Usage examples:
+ * - @Roles('admin')
+ * - @Roles('manager', 'editor')
+ * - @Roles() // No roles specified, empty array
+ */
+export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+```
+
+
+## File: src/modules/auth/adapters/secondary/security/utils/guards/roles.guard.ts
+```
+import { CanActivate, ExecutionContext, Injectable } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import { ROLES_KEY } from "../decorators/roles.decorator";
+
+/**
+ * Guard that checks if the current user has the required roles to access a route.
+ * Uses metadata applied via @Roles() decorator at either method or class level.
+ * 
+ * @see [1] Reflection metadata system
+ * @see [2] Execution context types
+ */
+@Injectable()
+export class RolesGuard implements CanActivate {
+    constructor(private reflector: Reflector) { }
+
+    /**
+     * Determines if the current request has the required roles to access the route.
+     * 
+     * If no roles are specified, the guard will allow the request to proceed.
+     * 
+     * @param context The execution context that contains data about the current request.
+     * @returns true if the request has the required roles, false otherwise.
+     */
+    canActivate(context: ExecutionContext): boolean {
+        const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+            context.getHandler(), // [1.1]
+            context.getClass() // [1.2]
+        ]);
+
+        if (!requiredRoles) {
+            return true;
+        }
+
+        const { user } = context.switchToHttp().getRequest(); // [2.1]
+        return requiredRoles.includes(user.role);
+    }
+}
+
+/**
+ * Documentation references:
+ * 
+ * [1] Reflection metadata system:
+ *     The Reflector utility retrieves metadata attached by decorators.
+ *     getAllAndOverride checks multiple locations with priority:
+ *     - First handler-level (method), then class-level (controller)
+ *     - Method-level overrides class-level for inheritance patterns
+ * 
+ * [1.1] context.getHandler():
+ *      Returns method where the guard is applied, checking for method-level metadata
+ * 
+ * [1.2] context.getClass():
+ *      Returns controller class, checking for controller-level metadata
+ * 
+ * [2] Execution context types:
+ *     ExecutionContext is a wrapper that can represent different transport layers:
+ *     - HTTP contexts (REST API)
+ *     - WebSocket contexts
+ *     - Microservice contexts (gRPC, Redis, MQTT, etc.)
+ *     - GraphQL contexts
+ * 
+ * [2.1] context.switchToHttp():
+ *      Switches to HTTP-specific context to access request/response objects
+ */
+```
+
+
+## File: src/modules/auth/application/commands/login.command.ts
+```
+export class LoginCommand {
+    constructor(
+        public readonly username: string,
+        public readonly password: string,
+        public readonly ipAddress: string
+    ) {}
+}
+```
+
+
+## File: src/modules/auth/application/commands/register-user.command.ts
+```
+export class RegisterUserCommand {
+    constructor(
+        public readonly username: string,
+        public readonly password: string,
+        public readonly age: number,
+        public readonly role: string
+    ) {}
+}
+```
+
+
+## File: src/modules/auth/application/event-handlers/login-failed.handler.ts
+```
+import { EventsHandler, IEventHandler } from "@nestjs/cqrs";
+import { LoginFailedEvent } from "../../domain/events/login-failed-event";
+import { Logger } from "@nestjs/common";
+
+@EventsHandler(LoginFailedEvent)
+export class LoginFailedHandler implements IEventHandler<LoginFailedEvent> {
+    private readonly logger = new Logger(LoginFailedHandler.name);
+    private readonly failedAttempts = new Map<string, number>();
+    handle(event: LoginFailedEvent) {
+        this.logger.warn(
+            `Failed login attempt for user: ${event.username} from IP: ${event.ipAddress} at ${event.timestamp}`
+        );
+
+        // Track failed login attempts
+        const key = `${event.username}:${event.ipAddress}`;
+        const attempts = (this.failedAttempts.get(key) || 0) + 1;
+        this.failedAttempts.set(key, attempts);
+
+        // Implement security measures for multiple failed attempts
+        if (attempts > 5) {
+            this.logger.error(
+                `Multiple failed login attempts detected for user: ${event.username} from IP: ${event.ipAddress}`
+            );
+
+            // We could:
+            //  - Temporarily lock the account
+            //  - Send notification to user
+            //  - Alert securtity team
+            //  - Apply rate limiting
+            // Clean up old entries with a timeOut or in production with a cronjob
+            setTimeout(() => {
+                this.failedAttempts.delete(key);
+            }, 30 * 60 * 1000);
+        }
+    }
+}
+```
+
+
+## File: src/modules/auth/application/event-handlers/user-created.handler.ts
+```
+import { EventsHandler, IEventHandler } from "@nestjs/cqrs";
+import { UserCreatedEvent } from "../../domain/events/user-created.event";
+import { Logger } from "@nestjs/common";
+
+@EventsHandler(UserCreatedEvent)
+export class UserCreatedHandler implements IEventHandler<UserCreatedEvent> {
+    private readonly logger = new Logger(UserCreatedEvent.name);
+
+    handle(event: UserCreatedEvent) {
+        this.logger.log(
+            `User created: ${event.username} (ID: ${event.userId}, Role: ${event.role}, Age: ${event.age})`
+        );
+
+        // We later implement additional logic here:
+        //  - Send welcome email
+        //  - Log to Audit system
+        //  - etc 
+    }
+}
+```
+
+
+## File: src/modules/auth/application/ports/password.service.interface.ts
+```
+export abstract class IPasswordService {
+    abstract hash(password: string): Promise<string>;
+    abstract compare(plainTextPassword: string, hashedPassword: string): Promise<boolean>;
+}
+```
+
+
+## File: src/modules/auth/application/ports/token-service.interface.ts
+```
+export abstract class ITokenService {
+    abstract generateToken(payload: Record<string, any>): Promise<string>;
+    abstract validateToken(token: string): Promise<Record<string, any>>;
+}
+```
+
+
+## File: src/modules/auth/application/ports/user-repository.interface.ts
+```
+import { User } from "../../domain/models/user.entity";
+
+export abstract class IUserRepository {
+    abstract save(user: User): Promise<User>;
+    abstract findById(id: string): Promise<User | null>;
+    abstract findByUsername(username: string): Promise<User | null>;
+    abstract exists(username: string): Promise<boolean>;
+}
+```
+
+
+## File: src/modules/auth/application/services/auth.service.ts
+```
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { IUserRepository } from "../ports/user-repository.interface";
+import { IPasswordService } from "../ports/password.service.interface";
+import { ITokenService } from "../ports/token-service.interface";
+import { EventBus } from "@nestjs/cqrs";
+import { LoginCommand } from "../commands/login.command";
+import { LoginFailedEvent } from "../../domain/events/login-failed-event";
+import { RegisterUserCommand } from "../commands/register-user.command";
+import { Role } from "../../domain/models/role.value-object";
+import { User } from "../../domain/models/user.entity";
+import {v4 as uuidv4} from "uuid";
+
+@Injectable()
+export class AuthService {
+    constructor(
+        private readonly userRepository: IUserRepository,
+        private readonly passwordService: IPasswordService,
+        private readonly tokenService: ITokenService,
+        private readonly eventBus: EventBus
+    ) {}
+
+    async login(command: LoginCommand): Promise<{accessToken: string, user: any}> {
+        const {username, password, ipAddress} = command;
+
+        const user = await this.userRepository.findByUsername(username);
+        if (!user) {
+            this.eventBus.publish(new LoginFailedEvent(username, ipAddress));
+            throw new UnauthorizedException('Invalid Credentials');
+        }
+
+        const passwordMatch = await this.passwordService.compare(
+            password,
+            user.getCredentials().getHashedPassword()
+        );
+
+        if (!passwordMatch) {
+            this.eventBus.publish(new LoginFailedEvent(username, ipAddress));
+            throw new UnauthorizedException('Invalid Credentials');
+        }
+
+        const payload = {
+            // subject(sub), JWT best practice
+            sub: user.getId(),
+            username: user.getUsername(),
+            role: user.getRole().getValue()
+        };
+
+        const accessToken = await this.tokenService.generateToken(payload);
+
+        return {
+            accessToken,
+            user: {
+                id: user.getId(),
+                username: user.getUsername(),
+                role: user.getRole().getValue(),
+                age: user.getAge()
+            }
+        };
+    }
+
+    async register(command: RegisterUserCommand): Promise<User> {
+        const {username, password, age, role} = command;
+
+        if (age < 0) {
+            throw new BadRequestException('Age must be a positive number')
+        }
+
+        const exists = await this.userRepository.exists(username);
+        if (exists) {
+            throw new ConflictException('Username already exists');
+        }
+
+        try {
+            const hashedPassword = await this.passwordService.hash(password);
+            const userRole = Role.fromString(role);
+            const user = User.create(
+                uuidv4(),
+                username,
+                hashedPassword,
+                age,
+                userRole
+            );
+
+            return await this.userRepository.save(user);
+        } catch (error) {
+            if (error.message.includes('Invalid role')) {
+                throw new BadRequestException(error.message);
+            }
+            throw error;
+        }
+    }
+
+    async validateUser(userId: string): Promise<User> {
+        const user = await this.userRepository.findById(userId);
+        if (!user) {
+            throw new UnauthorizedException('User not found');
+        }
+        return user;
+    }
+}
+```
+
+
+## File: src/modules/auth/application/services/user.service.ts
+```
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { IUserRepository } from "../ports/user-repository.interface";
+import { User } from "../../domain/models/user.entity";
+
+@Injectable()
+export class Userservice {
+    constructor(private readonly userRepository: IUserRepository) {}
+
+    async getUserById(id: string): Promise<User> {
+        const user = await this.userRepository.findById(id);
+        if (!user) {
+            throw new NotFoundException(`User with ID ${id} not found`);
+        }
+        return user;
+    }
+
+    async getUserByUsername(username: string): Promise<User> {
+        const user = await this.userRepository.findByUsername(username);
+        if (!user) {
+            throw new NotFoundException(`User with username ${username} not found`);
+        }
+        return user;
+    }
+}
+```
+
+
+## File: src/modules/auth/auth.module.ts
+```
+// NestJS module configuration
+
+import { Module } from "@nestjs/common";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { CqrsModule } from "@nestjs/cqrs";
+import { JwtModule } from "@nestjs/jwt";
+import { PassportModule } from "@nestjs/passport";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { UserTypeormEntity } from "./adapters/secondary/persistence/user.typeorm-entity";
+import { AuthController } from "./adapters/primary/rest/auth.controller";
+import { UserController } from "./adapters/primary/rest/user.controller";
+import { AuthService } from "./application/services/auth.service";
+import { Userservice } from "./application/services/user.service";
+
+import { IUserRepository } from "./application/ports/user-repository.interface";
+import { IPasswordService } from "./application/ports/password.service.interface";
+import { TypeormUserRepository } from "./adapters/secondary/persistence/typeorm-user.repository";
+import { ITokenService } from "./application/ports/token-service.interface";
+import { JwtTokenService } from "./adapters/secondary/security/jwt-adapter/jwt-token.service";
+import { BcryptPasswordService } from "./adapters/secondary/security/password-adapter/bcrypt-password.service";
+import { UserMapper } from "./adapters/secondary/persistence/user.mapper";
+import { UserCreatedHandler } from "./application/event-handlers/user-created.handler";
+import { LoginFailedHandler } from "./application/event-handlers/login-failed.handler";
+import { JwtStrategy } from "./adapters/secondary/security/jwt-adapter/jwt.strategy";
+import { RolesGuard } from "./adapters/secondary/security/utils/guards/roles.guard";
+
+const handlers = [UserCreatedHandler, LoginFailedHandler];
+
+@Module({
+    imports: [
+        CqrsModule,
+        PassportModule.register({defaultStrategy: 'jwt'}),
+        JwtModule.registerAsync({
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: async (configService: ConfigService) => ({
+                secret: configService.get<string>('JWT_SECRET'),
+                signOptions: {
+                    expiresIn: configService.get<string>('JWT_EXPIRES_IN', '1h')
+                }
+            })
+        }),
+        TypeOrmModule.forFeature([UserTypeormEntity])
+    ],
+    controllers: [AuthController, UserController],
+    providers: [
+        // Application layer
+        AuthService,
+        Userservice,
+
+        // Domain Layer - Ports implementations(Port:Adapter)
+        {
+            provide: IUserRepository,
+            useClass: TypeormUserRepository
+        },
+        {
+            provide: ITokenService,
+            useClass: JwtTokenService
+        },
+        {
+            provide: IPasswordService,
+            useClass: BcryptPasswordService
+        },
+
+        // Secondary Adapters
+        UserMapper,
+        JwtStrategy,
+
+        // Event handlers
+        ...handlers,
+
+        // Guard
+       //RolesGuard
+    ],
+    exports: [AuthService, Userservice]
+})
+export class AuthModule {}
+```
+
+
+## File: src/modules/auth/domain/events/login-failed-event.ts
+```
+export class LoginFailedEvent {
+    constructor(
+        public readonly username: string,
+        public readonly ipAddress: string,
+        public readonly timestamp: Date = new Date()
+    ) {}
+}
+```
+
+
+## File: src/modules/auth/domain/events/user-created.event.ts
+```
+export class UserCreatedEvent {
+    constructor(
+        public readonly userId: string,
+        public readonly username: string,
+        public readonly role: string,
+        public readonly age: number
+    ) {}
+}
+```
+
+
+## File: src/modules/auth/domain/models/credentials.value-object.ts
+```
+export class Credentials {
+    private readonly hashedPassword: string;
+
+    constructor(hashedPassword: string) {
+        this.hashedPassword = hashedPassword;
+    }
+
+    public getHashedPassword(): string {
+        return this.hashedPassword;
+    }
+
+    public comparePassword(plainTextPassword: string): boolean {
+        // Actual comparison will be done in the adapter layer
+        // This is just a placeholder that will be used by the service
+        return true;
+    }
+}
+```
+
+
+## File: src/modules/auth/domain/models/role.value-object.ts
+```
+export class Role {
+    public static readonly MANAGER = new Role('manager');
+    public static readonly CUSTOMER = new Role('customer');
+
+    private constructor(private readonly value: string) {
+        if (!this.isValidRole(value)) {
+            throw new Error(`Invalid role: ${value}`);
+        }
+    }
+
+    private isValidRole(role: string): boolean {
+        return ['manager', 'customer'].includes(role);
+    }
+
+    public getValue(): string {
+        return this.value;
+    }
+
+    public equals(role: Role): boolean {
+        return this.value === role.value;
+    }
+
+    public static fromString(value: string): Role {
+        value = value.toLocaleLowerCase();
+        if (value === 'manager') return Role.MANAGER;
+        if (value === 'customer') return Role.CUSTOMER;
+        throw new Error(`Invalid role: ${value}`);
+    }
+}
+```
+
+
+## File: src/modules/auth/domain/models/user.entity.ts
+```
+import {AggregateRoot} from '@nestjs/cqrs';
+import { Role } from './role.value-object';
+import { Credentials } from './credentials.value-object';
+import { UserCreatedEvent } from '../events/user-created.event';
+
+export class User extends AggregateRoot {
+    private readonly _id: string;
+    private readonly _username: string;
+    private readonly _credentials: Credentials;
+    private readonly _age: number;
+    private readonly _role: Role;
+    private readonly _createdAt: Date;
+    private readonly _watchHistory: string[] = []; //IDs of watched movies
+
+    constructor(
+        id: string,
+        username: string,
+        credentials: Credentials,
+        age: number,
+        role: Role,
+        createdAt = new Date()
+    ) {
+        super();
+        this._id = id;
+        this._username = username;
+        this._credentials = credentials;
+        this._age = age;
+        this._role = role;
+        this._createdAt = createdAt;
+        this.apply(new UserCreatedEvent(id, username, role.getValue(), age));
+    }
+
+    // Getters
+    public getId(): string {
+        return this._id;
+    }
+
+    public getUsername(): string {
+        return this._username;
+    }
+
+    public getCredentials(): Credentials {
+        return this._credentials;
+    }
+
+    public getAge(): number {
+        return this._age;
+      }
+    
+      public getRole(): Role {
+        return this._role;
+      }
+    
+      public getCreatedAt(): Date {
+        return this._createdAt;
+      }
+    
+      public getWatchHistory(): string[] {
+        return [...this._watchHistory];
+      }
+
+      // Domain methods
+      public isManager(): boolean {
+        return this._role.equals(Role.MANAGER)
+      }
+
+      public isCustomer(): boolean {
+        return this._role.equals(Role.CUSTOMER);
+      }
+
+      public canAccessByAge(ageRestriction: number): boolean {
+        return this._age >= ageRestriction;
+      }
+
+      public verifyPassword(plainTexPassword: string): boolean {
+        return this._credentials.comparePassword(plainTexPassword);
+      }
+
+      // Factory methods
+      public static create(
+        id: string,
+        username: string,
+        hashedPassword: string,
+        age: number,
+        role: Role
+      ): User {
+        const credentials = new Credentials(hashedPassword);
+        return new User(id, username, credentials, age, role);
+      }
+}
+```
+
+
+## File: src/modules/auth/test/integration/auth.integration.spec.ts
+```
+import { INestApplication, ValidationPipe } from "@nestjs/common"
+import { ConfigModule } from "@nestjs/config";
+import { Test, TestingModule } from "@nestjs/testing";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { UserTypeormEntity } from "../../adapters/secondary/persistence/user.typeorm-entity";
+import { PassportModule } from "@nestjs/passport";
+import { JwtModule } from "@nestjs/jwt";
+import { AuthModule } from "../../auth.module";
+import * as request from "supertest";
+
+
+describe('Auth Integration Tests', () => {
+    let app: INestApplication;
+    let authToken: string;
+    let userId: string;
+
+    beforeAll(async () => {
+        const moduleFixture: TestingModule = await Test.createTestingModule({
+            imports: [
+                ConfigModule.forRoot({
+                    isGlobal: true,
+                    envFilePath: '.env.test'
+                }),
+                TypeOrmModule.forRoot({
+                    type: 'sqlite',
+                    database: ':memory:',
+                    entities: [UserTypeormEntity],
+                    synchronize: true
+                }),
+                PassportModule.register({ defaultStrategy: 'jwt' }),
+                JwtModule.register({
+                    secret: '19d83ec3dc9d1a50763810d3719d8558df831410933395341035d3fa9b8d14dc',
+                    signOptions: { expiresIn: '1h' }
+                }),
+                AuthModule
+            ],
+
+        }).compile();
+
+        app = moduleFixture.createNestApplication();
+        app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+        await app.init();
+    });
+
+    afterAll(async () => {
+        await app.close();
+    });
+
+    describe('Auth Endpoints', () => {
+        it('should register a new customer user', async () => {
+            const response = await request(app.getHttpServer())
+                .post('/auth/register')
+                .send({
+                    username: 'testcustomer',
+                    password: 'Password123!',
+                    age: 25,
+                    role: 'customer'
+                })
+                .expect(201);
+
+            expect(response.body).toHaveProperty('id');
+            expect(response.body.username).toBe('testcustomer');
+            expect(response.body.role).toBe('customer');
+            expect(response.body.age).toBe(25);
+        });
+
+        it('should register a new manager user', async () => {
+            const response = await request(app.getHttpServer())
+                .post('/auth/register')
+                .send({
+                    username: 'testmanager',
+                    password: 'Password123!',
+                    age: 30,
+                    role: 'manager',
+                })
+                .expect(201);
+
+            expect(response.body).toHaveProperty('id');
+            expect(response.body.username).toBe('testmanager');
+            expect(response.body.role).toBe('manager');
+            expect(response.body.age).toBe(30);
+            userId = response.body.id;
+        });
+
+        it('should reject registeration with invalid role', async () => {
+            await request(app.getHttpServer())
+                .post('/auth/register')
+                .send({
+                    username: 'invalidrole',
+                    password: 'Paswword123!',
+                    age: 25,
+                    role: 'admin'
+                })
+                .expect(400);
+        });
+
+        it('should reject registeration with duplicate username', async () => {
+            await request(app.getHttpServer())
+                .post('/auth/register')
+                .send({
+                    username: 'testcustomer', // Already exists
+                    password: 'Password123!',
+                    age: 26,
+                    role: 'customer',
+                })
+                .expect(409);
+        });
+
+
+        it('should login with valid credentials', async () => {
+            const response = await request(app.getHttpServer())
+                .post('/auth/login')
+                .send({
+                    username: 'testmanager',
+                    password: 'Password123!',
+                })
+                .expect(200);
+
+            expect(response.body).toHaveProperty('accessToken');
+            expect(response.body.user.username).toBe('testmanager');
+            expect(response.body.user.role).toBe('manager');
+            authToken = response.body.accessToken;
+        })
+
+        it('should reject login with invalid credentials', async () => {
+            await request(app.getHttpServer())
+                .post('/auth/login')
+                .send({
+                    username: 'testmanager',
+                    password: 'WrongPassword!',
+                })
+                .expect(401);
+        });
+
+        it('should get user profile with valid token', async () => {
+            const response = await request(app.getHttpServer())
+                .get('/auth/profile')
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(200);
+
+            expect(response.body.username).toBe('testmanager');
+            expect(response.body.role).toBe('manager');
+        })
+
+        it('should reject profile request without token', async () => {
+            await request(app.getHttpServer())
+                .get('/auth/profile')
+                .expect(401);
+        });
+
+        it('should allow managers to get user by ID', async () => {
+            const response = await request(app.getHttpServer())
+                .get(`/users/${userId}`)
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(200);
+            expect(response.body.id).toBe(userId);
+            expect(response.body.username).toBe('testmanager');
+        });
+
+        it('should reject customers trying to access manager endpoints', async () => {
+            // login as a customer
+            const loginResponse = await request(app.getHttpServer())
+                .post('/auth/login')
+                .send({
+                    username: 'testcustomer',
+                    password: 'Password123!'
+                });
+
+            const customerToken = loginResponse.body.accessToken;
+
+            // Try to access manager-only endpoint
+            await request(app.getHttpServer())
+                .get(`/users/${userId}`)
+                .set('Authorization', `Bearer ${customerToken}`)
+                .expect(403)
+        })
+    })
+})
+```
+
+
+## File: src/modules/auth/test/unit/application/auth.service.spec.ts
+```
+import { EventBus } from "@nestjs/cqrs";
+import { ConflictException, UnauthorizedException } from "@nestjs/common";
+import { AuthService } from "src/modules/auth/application/services/auth.service";
+import { IUserRepository } from "src/modules/auth/application/ports/user-repository.interface";
+import { ITokenService } from "src/modules/auth/application/ports/token-service.interface";
+import { IPasswordService } from "src/modules/auth/application/ports/password.service.interface";
+import { User } from "src/modules/auth/domain/models/user.entity";
+import { LoginCommand } from "src/modules/auth/application/commands/login.command";
+import { RegisterUserCommand } from "src/modules/auth/application/commands/register-user.command";
+import { Test, TestingModule } from "@nestjs/testing";
+
+
+
+describe('AuthService', () => {
+    let service: AuthService;
+    let userRepository: jest.Mocked<IUserRepository>; // <T> ensures type safety 
+    let passwordService: jest.Mocked<IPasswordService>; // About jest mocking @see [1]
+    let tokenService: jest.Mocked<ITokenService>;
+    let eventBus: jest.Mocked<EventBus>;
+
+    const mockUser = {
+        getId: jest.fn().mockReturnValue('user-123'), // create a mock function, add a mock return value for all calls
+        getUsername: jest.fn().mockReturnValue('testuser'),
+        getCredentials: jest.fn().mockReturnValue({
+            getHashedPassword: jest.fn().mockReturnValue('hashed_passowrd'),
+        }),
+        getAge: jest.fn().mockReturnValue(25),
+        getRole: jest.fn().mockReturnValue({
+            getValue: jest.fn().mockReturnValue('customer'),
+            equals: jest.fn().mockReturnValue(true)
+        }),
+        getCreatedAt: jest.fn().mockReturnValue(new Date()),
+        getWatchHistory: jest.fn().mockReturnValue([]),
+        isManager: jest.fn().mockReturnValue(false),
+        isCustomer: jest.fn().mockReturnValue(true),
+        canAccessByAge: jest.fn(),
+        verifyPassword: jest.fn(),
+    };
+
+    beforeEach(async () => {
+        // create mocks through NestJS test module - @see [2]
+        const module: TestingModule = await Test.createTestingModule({
+            providers: [
+                AuthService, // NestJS injects these mocks into AuthService
+                {
+                    // Mocking dependency using jest's dependency injection, we replace entire implementation with a mock object
+                    provide: IUserRepository,
+                    useValue: { //define mock implementations in the useValue property
+                        save: jest.fn(),
+                        findById: jest.fn(),
+                        findByUsername: jest.fn(),
+                        exists: jest.fn()
+                    }
+                },
+                {
+                    provide: IPasswordService,
+                    useValue: {
+                        hash: jest.fn(),
+                        compare: jest.fn()
+                    }
+                },
+                {
+                    provide: ITokenService,
+                    useValue: {
+                        generateToken: jest.fn(),
+                        validateToken: jest.fn()
+                    }
+                },
+                {
+                    provide: EventBus,
+                    useValue: {
+                        publish: jest.fn()
+                    }
+                }
+            ]
+        }).compile();
+
+        service = module.get<AuthService>(AuthService);
+        // retrieve the mocks using module.get()
+        // we get references to those same mock objects so we can configure them and check their usage in each test
+        // Without this approach, we'd have mock objects in our test, but they wouldn't be the same instances that were injected into AuthService, 
+        // so our test manipulations wouldn't affect what the service actually receives.
+        userRepository = module.get(IUserRepository) as jest.Mocked<IUserRepository>; //as jest.Mocked<IUserRepository> cast ensures TypeScript recognizes these objects as Jest mocks with all the mock methods and properties.
+        passwordService = module.get(IPasswordService) as jest.Mocked<IPasswordService>;
+        tokenService = module.get(ITokenService) as jest.Mocked<ITokenService>;
+        eventBus = module.get(EventBus) as jest.Mocked<EventBus>;
+    });
+
+    it('should be defined', () => {
+        expect(service).toBeDefined();
+    });
+
+    describe('login', () => {
+        it('should return token and user data when login is successfull', async () => {
+            // Arrange
+            const loginCommand = new LoginCommand('testuser', 'password123', '127.0.0.1');
+            userRepository.findByUsername.mockResolvedValue(mockUser as unknown as User); // return resolved promise for async methods @see [3]
+            passwordService.compare.mockResolvedValue(true);
+            tokenService.generateToken.mockResolvedValue('valid.jwt.token');
+
+            // Act
+            const result = await service.login(loginCommand);
+
+            // Assert
+            expect(userRepository.findByUsername).toHaveBeenCalledWith('testuser');
+            expect(passwordService.compare).toHaveBeenCalled();
+            expect(tokenService.generateToken).toHaveBeenCalled();
+            expect(result).toEqual({
+                accessToken: 'valid.jwt.token',
+                user: {
+                    id: 'user-123',
+                    username: 'testuser',
+                    role: 'customer',
+                    age: 25
+                }
+            });
+        });
+
+
+        it('should throw UnauthorizedException when password is incorrect', async () => {
+            // Arrange
+            const loginCommand = new LoginCommand('nonexistent', 'password123', '127.0.0.1');
+            userRepository.findByUsername.mockResolvedValue(null);
+
+            // Act & Assert
+            // create an expectation on a Promise
+            // we expect the Promise to reject
+            // we expect the error
+            // we await and make sure test waits for this Promise rejection to be verified before proceeding
+            await expect(service.login(loginCommand)).rejects.toThrow(UnauthorizedException);
+            expect(eventBus.publish).toHaveBeenCalled();
+        });
+
+        it('should throw UnauthorizedException when password is incorrect', async () => {
+            // Arrange
+            const loginCommand = new LoginCommand('testuser', 'wrongpassword', '127.0.0.1');
+            userRepository.findByUsername.mockResolvedValue(mockUser as unknown as User);
+            passwordService.compare.mockResolvedValue(false);
+
+            // Act & Assert
+            await expect(service.login(loginCommand)).rejects.toThrow(UnauthorizedException);
+            expect(eventBus.publish).toHaveBeenCalled();
+        });
+    });
+
+    describe('register', () => {
+        it('should create and return a new user when registeration is successfull', async () => {
+            // Arrange
+            const registerCommand = new RegisterUserCommand('newuser', 'password123', 20, 'customer');
+            userRepository.exists.mockResolvedValue(false);
+            passwordService.hash.mockResolvedValue('hashed_password');
+            userRepository.save.mockImplementation((user) => Promise.resolve(user)); // custom logic for complex behavior
+
+            // Mock User.create static method
+            // static methods are called on the method itself not on instances cerated from it(or mock object)
+            jest.spyOn(User, 'create').mockReturnValue(mockUser as unknown as User); // track calls to original function(static method)
+
+            // Act
+            const result = await service.register(registerCommand);
+
+            // Assert
+            expect(userRepository.exists).toHaveBeenCalledWith('newuser');
+            expect(passwordService.hash).toHaveBeenCalledWith('password123');
+            expect(User.create).toHaveBeenCalled();
+            expect(userRepository.save).toHaveBeenCalled();
+            expect(result).toBeDefined();
+        });
+
+        it('should throw ConflictException when username already exists', async () => {
+            // Arrange
+            const registerCommand = new RegisterUserCommand('existinguser', 'password123', 20, 'customer');
+            userRepository.exists.mockResolvedValue(true);
+
+            // Act & Assert
+            await expect(service.register(registerCommand)).rejects.toThrow(ConflictException);
+            expect(passwordService.hash).not.toHaveBeenCalled();
+        });
+
+        it('should throw BadRequestException when the role is invalid', async () => {
+            // Arrange
+            const registerCommand = new RegisterUserCommand('newuser', 'password123', 20, 'admin');
+            userRepository.exists.mockResolvedValue(false);
+
+            // Act & Assert
+            await expect(service.register(registerCommand)).rejects.toThrow('Invalid role');
+        });
+    });
+
+    describe('validateUser', () => {
+        it('should return a user when token is valid', async () => {
+            // Arrange
+            userRepository.findById.mockResolvedValue(mockUser as unknown as User);
+
+            // Act
+            const result = await service.validateUser('user-123');
+
+            // Assert
+            expect(userRepository.findById).toHaveBeenCalledWith('user-123');
+            expect(result).toBeDefined();
+        });
+
+        it('should throw UnauthorizedException when user does not exist', async () => {
+            // Arrange
+            userRepository.findById.mockResolvedValue(null);
+
+            // Act & Assert
+            await expect(service.validateUser('nonexistent')).rejects.toThrow(UnauthorizedException);
+        })
+    })
+})
+ 
+
+/** [1]
+ * Jest Mocking:
+ * Isolate components - test AuthService independent of actual repositories
+ * Control test conditions - simulate success/failure scenarios
+ * Verify interactions - confirm service calls dependencies correctly
+ * Avoid external dependencies - No need for databases or real password hashing
+ */
+
+/** [2]
+ * Identify dependencies - Look at the service's constructor to see what dependencies it needs
+ * Create mock services - Create mock implementations of each dependency
+ * Configure test module - Set up a TestingModule with your mocks using the useValue property
+ * Let NestJS inject - Allow NestJS to inject these mocks into your service under test
+ * Get references - Get references to the same mock instances for test manipulation
+ */
+
+/** [3]
+ * mockUser as unknown as User:
+ * It's essentially telling TypeScript: "Trust me, I know this mock can be used as a User."
+ * casting: teeling compiler or interpreter to treat a variable as a different type than it was originally defined as.
+ * double casting, Typescript prevents direct casting between unrelated types for safety
+ * The as unknown as User approach works in two steps:
+ * First cast to unknown (TypeScript's "top type" that can represent any value)
+ * Then cast from unknown to User
+ */
+```
+
+
+## File: src/modules/auth/test/unit/domain/role.value-object.spec.ts
+```
+import { Role } from "src/modules/auth/domain/models/role.value-object";
+
+describe('Role Value Object', () => {
+    it('should have predefined roles', () => {
+        expect(Role.MANAGER).toBeDefined();
+        expect(Role.CUSTOMER).toBeDefined();
+
+        expect(Role.MANAGER.getValue()).toBe('manager');
+        expect(Role.CUSTOMER.getValue()).toBe('customer');
+    });
+
+    it('should create role object from string', () => {
+        const managerRole = Role.fromString('manager');
+        const customerRole = Role.fromString('customer');
+
+        expect(managerRole.getValue()).toBe('manager');
+        expect(customerRole.getValue()).toBe('customer');
+
+        // whether we create fromString or we use static property MANAGER to create
+        expect(managerRole.equals(Role.MANAGER)).toBe(true);
+        expect(customerRole.equals(Role.CUSTOMER)).toBe(true);
+    });
+
+    it('should handle case insensivity', () => {
+        const role1 = Role.fromString('MANAGER');
+        const role2 = Role.fromString('Manager');
+
+        expect(role1.equals(Role.MANAGER)).toBe(true);
+        expect(role1.equals(role2)).toBe(true);
+    });
+
+    it('should throw error for invalid roles', () => {
+        expect(() => Role.fromString('admin')).toThrow('Invalid role')
+        expect(() => Role.fromString('')).toThrow('Invalid role')
+    });
+})
+
+```
+
+
+## File: src/modules/auth/test/unit/domain/user.entity.spec.ts
+```
+import { User } from "../../../domain/models/user.entity";
+import { Role } from "../../../domain/models/role.value-object";
+import { Credentials } from "../../../domain/models/credentials.value-object";
+
+describe('User Entity', () => {
+    let user: User;
+    let credentials: Credentials;
+
+    beforeEach(() => {
+        credentials = new Credentials('hashed_password');
+        user = new User('user-123', 'testuser', credentials, 25, Role.CUSTOMER);
+    });
+
+    it('should create a valid user', () => {
+        expect(user).toBeDefined();
+        expect(user.getId()).toBe('user-123');
+        expect(user.getUsername()).toBe('testuser');
+        expect(user.getCredentials()).toBe(credentials);
+        expect(user.getAge()).toBe(25);
+        expect(user.getRole().getValue()).toBe('customer');
+        expect(user.getCreatedAt()).toBeInstanceOf(Date);
+    });
+
+    it('should create a suer using factory method', () => {
+        const factoryUser = User.create(
+            'user-456',
+            'factoryuser',
+            'hashed_password',
+            30,
+            Role.MANAGER,
+        );
+
+        expect(factoryUser).toBeDefined();
+        expect(factoryUser.getId()).toBe('user-456');
+        expect(factoryUser.getUsername()).toBe('factoryuser');
+        expect(factoryUser.getAge()).toBe(30);
+        expect(factoryUser.getRole().getValue()).toBe('manager');
+    });
+
+    it('should correctly identify user role', () => {
+        const customerUser = new User('c-123', 'customer', credentials, 20, Role.CUSTOMER);
+        const managerUser = new User('m-123', 'manager', credentials, 30, Role.MANAGER);
+
+        expect(customerUser.isCustomer()).toBe(true);
+        expect(customerUser.isManager()).toBe(false);
+
+        expect(managerUser.isCustomer()).toBe(false);
+        expect(managerUser.isManager()).toBe(true);
+    });
+
+    it('should check age restrictions correctly', () => {
+        const minorUser = new User('minor-123', 'minor', credentials, 15, Role.CUSTOMER);
+        const adultUser = new User('adult-123', 'adult', credentials, 21, Role.CUSTOMER);
+
+        expect(minorUser.canAccessByAge(18)).toBe(false);
+        expect(adultUser.canAccessByAge(18)).toBe(true);
+
+        expect(minorUser.canAccessByAge(13)).toBe(true);
+        expect(adultUser.canAccessByAge(21)).toBe(true);
+    });
+})
+```
+
+
+## File: src/modules/movie/adapters/primary/dtos/create-movie.dto.ts
+```
+import { ApiProperty } from "@nestjs/swagger";
+import { IsInt, IsNotEmpty, IsString, Min } from "class-validator";
+
+export class CreateMovieDto {
+    @ApiProperty({
+        description: 'Name of the movie',
+        example: 'The Godfather'
+    })
+    @IsNotEmpty()
+    @IsString()
+    name: string;
+
+    @ApiProperty({
+        description: 'Age restriction for the movie',
+        example: 16,
+        minimum: 0
+    })
+    @IsInt()
+    @Min(0)
+    ageRestriction: number;
+}
+```
+
+
+## File: src/modules/movie/adapters/primary/dtos/create-session.dto.ts
+```
+import { ApiProperty } from "@nestjs/swagger";
+import { IsDateString, IsEnum, IsIn, IsInt, IsNotEmpty, IsString, Min } from "class-validator";
+
+export class CreateSessionDto {
+    @ApiProperty({
+        description: 'Date of the session',
+        example: '2023-06-15'
+    })
+    @IsNotEmpty()
+    @IsDateString()
+    date: string;
+
+    @ApiProperty({
+        description: 'Time slot for the session',
+        example: '18:00-20:00',
+        enum: [
+            '10:00-12:00', '12:00-14:00', '14:00-16:00',
+            '16:00-18:00', '18:00-20:00', '20:00-22:00', 
+            '22:00-00:00'
+        ]
+    })
+    @IsNotEmpty()
+    @IsString()
+    @IsEnum([
+        '10:00-12:00', '12:00-14:00', '14:00-16:00',
+            '16:00-18:00', '18:00-20:00', '20:00-22:00', 
+            '22:00-00:00'
+    ])
+    timeSlot: string;
+
+    @ApiProperty({
+        description: 'Room number for the session',
+        example: 3,
+        minimum: 1
+    })
+    @IsInt()
+    @Min(1)
+    roomNumber: number;
+
+    @ApiProperty({
+        description: 'Number of available seats',
+        example: 100,
+        minimum: 1
+    })
+    @IsInt()
+    @Min(1)
+    availableSeats: number
+}
+```
+
+
+## File: src/modules/movie/adapters/primary/dtos/filter-movies.dto.ts
+```
+import { ApiProperty } from "@nestjs/swagger";
+import { IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
+
+export class FilterMoviesDto {
+    @ApiProperty({
+        description: 'Filter movies by name (partial match)',
+        example: 'father',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    name?: string;
+
+    @ApiProperty({
+        description: 'Filter movies by moinimum age restriction',
+        example: 12,
+        required: false
+    })
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    minAge?: number;
+
+    @ApiProperty({
+        description: 'Filter movies by maximum age restriction',
+        example: 16,
+        required: false
+    })
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    maxAge?: number;
+
+    @ApiProperty({
+        description: 'Sort movies by field',
+        enum: ['name', 'ageRestriction', 'createdAt'],
+        required: false
+    })
+    @IsOptional()
+    @IsEnum(['name', 'ageRestriction', 'createdAt'])
+    sortBy?: string;
+
+    @ApiProperty({
+        description: 'Sort order',
+        enum: ['ASC', 'DESC'],
+        default: 'ASC',
+        required: false
+    })
+    @IsOptional()
+    @IsEnum(['ASC', 'DESC'])
+    sortOrder?: 'ASC' | 'DESC';
+}
+```
+
+
+## File: src/modules/movie/adapters/primary/dtos/update-movie.dto.ts
+```
+import { ApiProperty } from "@nestjs/swagger";
+import { IsInt, IsOptional, IsString, Min } from "class-validator";
+
+export class UpdateMovieDto {
+    @ApiProperty({
+        description: 'Name of the movie',
+        example: 'The Godfather: P2',
+        required: false
+    })
+    @IsOptional()
+    @IsString()
+    name?: string;
+
+    @ApiProperty({
+        description: 'Age restriction for the movie',
+        example: 18,
+        minimum: 0,
+        required: false
+    })
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    ageRestriction?: number;
+}
+```
+
+
+## File: src/modules/movie/adapters/primary/rest/movie.controller.ts
+```
+import { Body, Controller, Delete, Get, HttpCode, HttpException, HttpStatus, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { JwtAuthGuard } from "src/modules/auth/adapters/secondary/security/jwt-adapter/jwt-auth.guard";
+import { Roles } from "src/modules/auth/adapters/secondary/security/utils/decorators/roles.decorator";
+import { RolesGuard } from "src/modules/auth/adapters/secondary/security/utils/guards/roles.guard";
+import { MovieService } from "src/modules/movie/application/services/movie.service";
+import { CreateMovieDto } from "../dtos/create-movie.dto";
+import { CreateMovieCommand } from "src/modules/movie/application/commands/create-movie.command";
+import { UpdateMovieDto } from "../dtos/update-movie.dto";
+import { UpdateMovieCommand } from "src/modules/movie/application/commands/update-movie.command";
+import { DeleteMovieCommand } from "src/modules/movie/application/commands/delete-movie.command";
+import { CreateSessionDto } from "../dtos/create-session.dto";
+import { AddSessionCommand } from "src/modules/movie/application/commands/add-session.command";
+import { session } from "passport";
+import { AgeRestriction } from "src/modules/movie/domain/models/age-restriction.value-object";
+import { FilterMoviesDto } from "../dtos/filter-movies.dto";
+import { CurrentUser } from "src/modules/auth/adapters/primary/rest/decorators/current-user.decorator";
+
+@ApiTags('movies')
+@Controller('movies')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
+export class MovieController {
+    constructor(private readonly movieService: MovieService) {}
+
+    @Post()
+    @Roles('manager')
+    @UseGuards(RolesGuard)
+    @ApiOperation({summary: 'Create a new movie (managers only)'})
+    @ApiResponse({
+        status: 201,
+        description: 'Movie created successfully',
+        schema: {
+            type: 'object',
+            properties: {
+                id: {type: 'string'},
+                name: {type: 'string'},
+                ageRestriction: {type: 'number'},
+                createdAt: {type: 'string', format: 'date-time'}
+            }
+        }
+    })
+    @ApiResponse({status: 400, description: 'Bad request'})
+    @ApiResponse({status: 401, description: 'Unauthorized'})
+    @ApiResponse({status: 403, description: 'Forbidden - Requires manager role'})
+    async createMovie(@Body() createMovieDto: CreateMovieDto) {
+        const command = new CreateMovieCommand(
+            createMovieDto.name,
+            createMovieDto.ageRestriction
+        );
+
+        const movie = await this.movieService.createMovie(command);
+
+        return {
+            id: movie.getId(),
+            name: movie.getName(),
+            ageRestriction: movie.getAgeRestriction().getValue(),
+            createdAt: movie.getCreatedAt()
+        }
+    }
+
+    @Put(':id')
+    @Roles('manager')
+    @UseGuards(RolesGuard)
+    @ApiOperation({ summary: 'Update a movie (managers only)' })
+    @ApiResponse({
+        status: 200,
+        description: 'Movie updated successfully',
+        schema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                ageRestriction: { type: 'number' },
+                createdAt: { type: 'string', format: 'date-time' }
+            }
+        }
+    })
+    @ApiResponse({ status: 400, description: 'Bad request' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 403, description: 'Forbidden - Requires manager role' })
+    @ApiResponse({ status: 404, description: 'Movie not found' })
+    async updateMovie(@Param('id') id: string, @Body() updateMovieDto: UpdateMovieDto) {
+        const command = new UpdateMovieCommand(
+            id,
+            updateMovieDto.name,
+            updateMovieDto.ageRestriction
+        );
+
+        const movie = await this.movieService.updateMovie(command);
+
+        return {
+            id: movie.getId(),
+            name: movie.getName(),
+            ageRestriction: movie.getAgeRestriction().getValue(),
+            createdAt: movie.getCreatedAt()
+        }
+    }
+
+    @Delete(':id')
+    @Roles('manager')
+    @UseGuards(RolesGuard)
+    @HttpCode(HttpStatus.NO_CONTENT)
+    @ApiOperation({ summary: 'Delete a movie (managers only)' })
+    @ApiResponse({ status: 204, description: 'Movie deleted successfully' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 403, description: 'Forbidden - Requires manager role' })
+    @ApiResponse({ status: 404, description: 'Movie not found' })
+    async deleteMovie(@Param('id') id: string) {
+        const command = new DeleteMovieCommand(id);
+        await this.movieService.deleteMovie(command);
+    }
+
+    @Post(':id/sessions')
+    @Roles('manager')
+    @UseGuards(RolesGuard)
+    @ApiOperation({summary: 'Add a session to a movie (managers only'})
+    @ApiResponse({
+        status: 201,
+        description: 'Session added successfully',
+        schema: {
+            type: 'object',
+            properties: {
+                id: {type: 'string'},
+                name: {type: 'string'},
+                ageRestriction: {type: 'number'},
+                sessions: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            id: { type: 'string' },
+                            date: { type: 'string', format: 'date' },
+                            timeSlot: { type: 'string' },
+                            roomNumber: { type: 'number' },
+                            availableSeats: { type: 'number' },
+                            bookedSeats: { type: 'number' }
+                        }
+                    }
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 400, description: 'Bad request' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 403, description: 'Forbidden - Requires manager role' })
+    @ApiResponse({ status: 404, description: 'Movie not found' })
+    @ApiResponse({ status: 409, description: 'Room already booked at this time' })
+    async addSession(@Param('id') movieId: string, @Body() createSessionDto: CreateSessionDto) {
+        const command = new AddSessionCommand(
+            movieId,
+            new Date(createSessionDto.date),
+            createSessionDto.timeSlot,
+            createSessionDto.roomNumber,
+            createSessionDto.availableSeats
+        );
+
+        const movie = await this.movieService.addSession(command);
+
+        return {
+            id: movie.getId(),
+            name: movie.getName(),
+            ageRestriction: movie.getAgeRestriction().getValue(),
+            sessions: movie.getSessions().map(session => ({
+                id: session.getId(),
+                date: session.getDate(),
+                timeSlot: session.getTimeSlot().getValue(),
+                roomNumber: session.getRoomNumber(),
+                availableSeats: session.getAvailableSeats(),
+                bookedSeats: session.getBookedSeats()
+            }))
+        }
+    }
+
+    @Get()
+    @ApiOperation({ summary: 'Get all movies with optional filtering' })
+    @ApiResponse({
+        status: 200,
+        description: 'List of movies',
+        schema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string' },
+                    ageRestriction: { type: 'number' },
+                    sessions: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'string' },
+                                date: { type: 'string', format: 'date' },
+                                timeSlot: { type: 'string' },
+                                roomNumber: { type: 'number' },
+                                availableSeats: { type: 'number' },
+                                bookedSeats: { type: 'number' }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    async getAllMovies(@Query() filterDto: FilterMoviesDto, @CurrentUser() user: any) {
+        // enforce max age filter by customer age (if user is customer)
+        if (user.role === 'customer') {
+            // if user has provided max age and chosen a max age flter more than his age, we select his age as max age filter
+            if (filterDto.maxAge) {
+                filterDto.maxAge = Math.min(filterDto.maxAge, user.age);
+            } else {
+                // we always filter based on age even though no max age filter is provided
+                filterDto.maxAge =user.age
+            }
+        }
+
+        const movies = await this.movieService.getAllMovies(filterDto);
+
+        return movies.map(movie => ({
+            id: movie.getId(),
+            name: movie.getName(),
+            ageRestriction: movie.getAgeRestriction().getValue(),
+            sessions: movie.getSessions().map(session => ({
+                id: session.getId(),
+                date: session.getDate(),
+                timeSlot: session.getTimeSlot().getValue(),
+                roomNumber: session.getRoomNumber(),
+                availableSeats: session.getAvailableSeats(),
+                bookedSeats: session.getBookedSeats(),
+                remainingSeats: session.getRemainingSeats()
+            }))
+        }));
+    }
+
+    @Get(':id')
+    @ApiOperation({ summary: 'Get movie by ID' })
+    @ApiResponse({
+        status: 200,
+        description: 'Movie details',
+        schema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                ageRestriction: { type: 'number' },
+                sessions: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            id: { type: 'string' },
+                            date: { type: 'string', format: 'date' },
+                            timeSlot: { type: 'string' },
+                            roomNumber: { type: 'number' },
+                            availableSeats: { type: 'number' },
+                            bookedSeats: { type: 'number' }
+                        }
+                    }
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 404, description: 'Movie not found' })
+    async getMovieById(@Param('id') id: string, @CurrentUser() user: any) {
+        const movie = await this.movieService.getMovieById(id);
+        
+        // For customer role, check age restriction
+        if (user.role === 'customer' && !movie.isAllowedForAge(user.age)) {
+            throw new HttpException('Age restriction prevents access to this movie', HttpStatus.FORBIDDEN);
+        }
+
+        return {
+            id: movie.getId(),
+            name: movie.getName(),
+            ageRestriction: movie.getAgeRestriction().getValue(),
+            sessions: movie.getSessions().map(session => ({
+                id: session.getId(),
+                date: session.getDate(),
+                timeSlot: session.getTimeSlot().getValue(),
+                roomNumber: session.getRoomNumber(),
+                availableSeats: session.getAvailableSeats(),
+                bookedSeats: session.getBookedSeats(),
+                remainingSeats: session.getRemainingSeats()
+            }))
+        };
+    }
+}
+```
+
+
+## File: src/modules/movie/adapters/secondary/persistence/movie.mapper.ts
+```
+import { Injectable } from "@nestjs/common";
+import { MovieTypeormEntity } from "./movie.typeorm-entity";
+import { Movie } from "src/modules/movie/domain/models/movie.entity";
+import { AgeRestriction } from "src/modules/movie/domain/models/age-restriction.value-object";
+import { Session } from "src/modules/movie/domain/models/session.entity";
+import { SessionTypeormEntity } from "./session.typeorm-entity";
+import { TimeSlot } from "src/modules/movie/domain/models/time-slot.value-object";
+
+@Injectable()
+export class MovieMapper {
+    /**
+     * Maps a MovieTypeormEntity to a Movie domain object
+     */
+    toDomain(movieEntity: MovieTypeormEntity): Movie | null {
+        if (!movieEntity) return null;
+
+        const ageRestriction = new AgeRestriction(movieEntity.ageRestriction);
+
+        const sessions = movieEntity.sessions?.map(sessionEntity => 
+            this.sessionToDomain(sessionEntity)
+        ) || [];
+
+        const movie = new Movie(
+            movieEntity.id,
+            movieEntity.name,
+            ageRestriction,
+            sessions,
+            movieEntity.createdAt
+        );
+
+        return movie;
+    }
+
+    /**
+     * Maps a SessionTypeormEntity to a Session domain object
+     */
+    private sessionToDomain(sessionEntity: SessionTypeormEntity): Session {
+        const timeSlot = TimeSlot.fromString(sessionEntity.timeSlot);
+
+        return new Session(
+            sessionEntity.id,
+            sessionEntity.movieId,
+            sessionEntity.date,
+            timeSlot,
+            sessionEntity.roomNumber,
+            sessionEntity.availableSeats,
+            sessionEntity.bookedSeats
+        );
+    }
+
+    /**
+     * Maps a Movie domain object to a MovieTypeormEntity
+     */
+    toPersistence(movie: Movie): MovieTypeormEntity {
+        const movieEntity = new MovieTypeormEntity();
+        movieEntity.id = movie.getId();
+        movieEntity.name = movie.getName();
+        movieEntity.ageRestriction = movie.getAgeRestriction().getValue();
+
+        // Map sessions of movie
+        movieEntity.sessions = movie.getSessions().map(session => {
+            const sessionEntity = new SessionTypeormEntity();
+            sessionEntity.id = session.getId();
+            sessionEntity.movieId = session.getMovieId();
+            sessionEntity.date = session.getDate();
+            sessionEntity.timeSlot = session.getTimeSlot().getValue();
+            sessionEntity.roomNumber = session.getRoomNumber();
+            sessionEntity.availableSeats = session.getAvailableSeats();
+            sessionEntity.bookedSeats = session.getBookedSeats();
+            return sessionEntity;
+        });
+
+        return movieEntity;
+    }
+}
+```
+
+
+## File: src/modules/movie/adapters/secondary/persistence/movie.typeorm-entity.ts
+```
+import { Column, CreateDateColumn, Entity, JoinColumn, OneToMany, PrimaryColumn, UpdateDateColumn } from "typeorm";
+import { SessionTypeormEntity } from "./session.typeorm-entity";
+
+@Entity('movie')
+export class MovieTypeormEntity {
+    @PrimaryColumn('uuid')
+    id: string;
+
+    @Column()
+    name: string;
+
+    @Column()
+    ageRestriction: number;
+
+    @OneToMany(() => SessionTypeormEntity, session => session.movie, {
+        cascade: ['insert', 'update', 'remove'],
+        eager: true,
+    })
+    sessions: SessionTypeormEntity[];
+
+    @CreateDateColumn()
+    createdAt: Date;
+
+    @UpdateDateColumn()
+    updatedAt: Date;
+}
+```
+
+
+## File: src/modules/movie/adapters/secondary/persistence/session.typeorm-entity.ts
+```
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
+import { MovieTypeormEntity } from "./movie.typeorm-entity";
+
+@Entity('sessions')
+export class SessionTypeormEntity {
+    @PrimaryColumn('uuid')
+    id: string;
+
+    @Column('uuid')
+    movieId: string;
+
+    @ManyToOne(() => MovieTypeormEntity, movie => movie.sessions, {
+        onDelete: 'CASCADE'
+    })
+    @JoinColumn({name: 'movieId'})
+    movie: MovieTypeormEntity;
+
+    @Column('date')
+    date: Date;
+
+    @Column()
+    timeSlot: string;
+
+    @Column()
+    roomNumber: number;
+
+    @Column()
+    availableSeats: number
+
+    @Column({default: 0})
+    bookedSeats: number;
+}
+```
+
+
+## File: src/modules/movie/adapters/secondary/persistence/typeorm-movie.repository.ts
+```
+import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { IMovieRepository } from "src/modules/movie/application/ports/movie-repository.interface";
+import { MovieTypeormEntity } from "./movie.typeorm-entity";
+import { Repository } from "typeorm";
+import { SessionTypeormEntity } from "./session.typeorm-entity";
+import { privateDecrypt } from "crypto";
+import { MovieMapper } from "./movie.mapper";
+import { Movie } from "src/modules/movie/domain/models/movie.entity";
+
+@Injectable()
+export class TypeormMovieRepository implements IMovieRepository {
+    constructor(
+        @InjectRepository(MovieTypeormEntity)
+        private readonly movieRepository: Repository<MovieTypeormEntity>,
+        @InjectRepository(SessionTypeormEntity)
+        private readonly sessionRepository: Repository<SessionTypeormEntity>,
+        private readonly movieMapper: MovieMapper
+    ) { }
+
+    async save(movie: Movie): Promise<Movie> {
+        const movieEntity = this.movieMapper.toPersistence(movie);
+        const savedMovie = await this.movieRepository.save(movieEntity);
+        const domainMovie = this.movieMapper.toDomain(savedMovie);
+
+        if (!domainMovie) {
+            throw new Error('Failed to map saved Entity back to domain model');
+        }
+
+        return domainMovie;
+    }
+
+    async findById(id: string): Promise<Movie | null> {
+        const movieEntity = await this.movieRepository.findOne({
+            where: { id },
+            relations: ['sessions']
+        });
+
+        return movieEntity ? this.movieMapper.toDomain(movieEntity) : null;
+    }
+
+    async findAll(filter?: Record<string, any>): Promise<Movie[]> {
+        // build a query for adding filters
+        const query = this.movieRepository.createQueryBuilder('movie')
+            .leftJoinAndSelect('movie.sessions', 'session');
+
+        if (filter) {
+            if (filter.name) {
+                query.andWhere('movie.name LIKE :name', { name: `%${filter.name}%` })
+            }
+            if (filter.minAge !== undefined) {
+                query.andWhere('movie.ageRestriction >= :minAge', {minAge: filter.minAge})
+            }
+            if (filter.maxAge !== undefined) {
+                query.andWhere('movie.ageRestriction <= :maxAge', {maxAge: filter.maxAge})
+            }
+
+            // Sorting
+            if (filter.sortBy) {
+                const order = filter.sortOrder === 'DESC' ? 'DESC' : 'ASC';
+                query.orderBy(`movie.${filter.sortBy}`, order);
+            }
+        }
+
+        const movieEntities = await query.getMany();
+        return movieEntities.map(entity => this.movieMapper.toDomain(entity))
+            .filter(movie => movie !== null) as Movie[];
+    }
+
+    async delete(id: string): Promise<void> {
+        await this.movieRepository.delete(id);
+    }
+
+    async existsById(id: string): Promise<boolean> {
+        const count = await this.movieRepository.count({where: {id}});
+        return count > 0;
+    }
+
+    async checkRoomAvailability(date: Date, timeSlot: string, roomNumber: number): Promise<boolean> {
+        // convert to date without time
+        const dateString = date.toISOString().split('T')[0];
+
+        // check if there are any sessions in same room at same timemslot
+        const conflictingSessions = await this.sessionRepository
+            .createQueryBuilder('session')
+            .where('DATE(session.date) = :date', {date: dateString})
+            .andWhere('session.timeSlot = :timeSlot', {timeSlot: timeSlot})
+            .andWhere('session.roomNumber = :roomNumber', {roomNumber})
+            .getCount();
+
+        return conflictingSessions === 0;
+    }
+}
+```
+
+
+## File: src/modules/movie/application/commands/add-session.command.ts
+```
+export class AddSessionCommand {
+    constructor(
+        public readonly movieId: string,
+        public readonly date: Date,
+        public readonly timeSlot: string,
+        public readonly roomNumber: number,
+        public readonly availableSeats: number
+    ) {}
+}
+```
+
+
+## File: src/modules/movie/application/commands/create-movie.command.ts
+```
+export class CreateMovieCommand {
+    constructor(
+        public readonly name: string,
+        public readonly ageRestriction: number
+    ) {}
+}
+```
+
+
+## File: src/modules/movie/application/commands/delete-movie.command.ts
+```
+export class DeleteMovieCommand {
+    constructor(
+        public readonly id: string
+    ) {}
+}
+```
+
+
+## File: src/modules/movie/application/commands/update-movie.command.ts
+```
+export class UpdateMovieCommand {
+    constructor(
+        public readonly id: string,
+        public readonly name?: string,
+        public readonly ageRestriction?: number
+    ) {}
+}
+```
+
+
+## File: src/modules/movie/application/event-handlers/movie-created.handler.ts
+```
+import { EventsHandler, IEventHandler } from "@nestjs/cqrs";
+import { MovieCreatedEvent } from "../../domain/events/movie-created.event";
+import { Logger } from "@nestjs/common";
+
+@EventsHandler(MovieCreatedEvent)
+export class MovieCreatedHandler implements IEventHandler<MovieCreatedEvent> {
+    private readonly logger = new Logger(MovieCreatedHandler.name);
+
+    handle(event: MovieCreatedEvent) {
+        this.logger.log(
+            `Movie created: ${event.name} (ID: ${event.movieId}, Age Restriction: ${event.ageRestriction})`
+        );
+    }
+}
+```
+
+
+## File: src/modules/movie/application/event-handlers/session-created.handler.ts
+```
+import { EventsHandler, IEventHandler } from "@nestjs/cqrs";
+import { SessionCreatedEvent } from "../../domain/events/session-created.event";
+import { Logger } from "@nestjs/common";
+
+@EventsHandler(SessionCreatedEvent)
+export class SessionCreatedHandler implements IEventHandler<SessionCreatedEvent> {
+    private readonly logger = new Logger(SessionCreatedHandler.name);
+
+    handle(event: SessionCreatedEvent) {
+        this.logger.log(
+            `New session created for movie ID: ${event.movieId}, ` +
+            `Room: ${event.roomNumber}, ` +
+            `Date: ${event.date.toISOString().split('T')[0]}, ` +
+            `Time: ${event.timeSlot}`
+        )
+    }
+}
+```
+
+
+## File: src/modules/movie/application/ports/movie-repository.interface.ts
+```
+import { Movie } from "../../domain/models/movie.entity";
+
+export abstract class IMovieRepository {
+    abstract save(movie: Movie): Promise<Movie>;
+    abstract findById(id: string): Promise<Movie | null>;
+    abstract findAll(filter?: Record<string, any>): Promise<Movie[]>;
+    abstract delete(id: string): Promise<void>;
+    abstract existsById(id: string): Promise<boolean>;
+    abstract checkRoomAvailability(date: Date, timeSlot: string, roomNumber: number): Promise<boolean>
+}
+```
+
+
+## File: src/modules/movie/application/services/movie.service.ts
+```
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { IMovieRepository } from "../ports/movie-repository.interface";
+import { CreateMovieCommand } from "../commands/create-movie.command";
+import { Movie } from "../../domain/models/movie.entity";
+import { v4 as uuidv4 } from "uuid";
+import { UpdateMovieCommand } from "../commands/update-movie.command";
+import { AgeRestriction } from "../../domain/models/age-restriction.value-object";
+import { DeleteMovieCommand } from "../commands/delete-movie.command";
+import { AddSessionCommand } from "../commands/add-session.command";
+import { Session } from "../../domain/models/session.entity";
+import { TimeSlot } from "../../domain/models/time-slot.value-object";
+
+@Injectable()
+export class MovieService {
+    constructor(
+        private readonly movieRepository: IMovieRepository
+    ) { }
+
+    async createMovie(command: CreateMovieCommand): Promise<Movie> {
+        const { name, ageRestriction } = command;
+
+        const movie = Movie.create(
+            uuidv4(),
+            name,
+            ageRestriction
+        );
+
+        return await this.movieRepository.save(movie);
+    }
+
+    async updateMovie(command: UpdateMovieCommand): Promise<Movie> {
+        const { id, name, ageRestriction } = command;
+
+        const movie = await this.movieRepository.findById(id);
+        if (!movie) {
+            throw new NotFoundException(`Movie with ID ${id} not found`);
+        }
+
+        if (name) {
+            movie.updateName(name);
+        }
+
+        // ageRestriction might be 0(!ageRestriction becomes true if 0)
+        if (ageRestriction !== undefined) {
+            movie.updateAgeRestriction(new AgeRestriction(ageRestriction));
+        }
+
+        return await this.movieRepository.save(movie);
+    }
+
+    async deleteMovie(command: DeleteMovieCommand): Promise<void> {
+        const { id } = command;
+
+        const exists = await this.movieRepository.existsById(id);
+        if (!exists) {
+            throw new NotFoundException(`Movie with ID ${id} not found`);
+        }
+
+        await this.movieRepository.delete(id);
+    }
+
+    async addSession(command: AddSessionCommand): Promise<Movie> {
+        const {movieId, date, timeSlot, roomNumber, availableSeats} = command;
+
+        const movie = await this.movieRepository.findById(movieId);
+        if (!movie) {
+            throw new NotFoundException(`Movie with ID ${movieId} not found`);
+        }
+
+        // check room availability at specified timeSlot/date
+        const isRoomAvailable = await this.movieRepository.checkRoomAvailability(
+            date,
+            timeSlot,
+            roomNumber
+        );
+
+        if (!isRoomAvailable) {
+            throw new ConflictException(
+                `Room ${roomNumber} is already booked at ${timeSlot} on ${date.toDateString()}`
+            );
+        }
+
+        const session = new Session(
+            uuidv4(),
+            movieId,
+            date,
+            TimeSlot.fromString(timeSlot),
+            roomNumber,
+            availableSeats
+        );
+
+        try {
+            movie.addSession(session);
+            return await this.movieRepository.save(movie);
+        } catch(error) {
+            throw new ConflictException(error.message);
+        }
+    }
+
+    async getMovieById(movieId: string): Promise<Movie> {
+        const movie = await this.movieRepository.findById(movieId);
+        if (!movie) {
+            throw new NotFoundException(`Movie with ID ${movieId} not found`);
+        }
+        return movie;
+    }
+
+    async getAllMovies(filter?: Record<string, any>): Promise<Movie[]> {
+        return await this.movieRepository.findAll(filter);
+    }
+
+    // Method for use in Ticket module
+    async bookSessionSeats(movieId: string, sessionId: string, numberOfSeats: number, userAge: number) {
+        const movie = await this.movieRepository.findById(movieId);
+        if (!movie) {
+            throw new NotFoundException(`Movie with ID ${movieId} not found`);
+        }
+
+        if (!movie.isAllowedForAge(userAge)) {
+            throw new BadRequestException('User does not meet age requirement');
+        }
+
+        const session = movie.getSession(sessionId);
+        if (!session) {
+            throw new NotFoundException(`Session ${sessionId} not found`);
+        }
+
+        if (!session.hasAvailableSeats(numberOfSeats)) {
+            throw new BadRequestException('Not enough available seats');
+        }
+
+        session.bookSeats(numberOfSeats);
+        await this.movieRepository.save(movie);
+    }
+}
+```
+
+
+## File: src/modules/movie/domain/events/movie-created.event.ts
+```
+export class MovieCreatedEvent {
+    constructor(
+        public readonly movieId: string,
+        public readonly name: string,
+        public readonly ageRestriction: number
+    ) {}
+}
+```
+
+
+## File: src/modules/movie/domain/events/session-created.event.ts
+```
+export class SessionCreatedEvent {
+    constructor(
+        public readonly sessionId: string,
+        public readonly movieId: string,
+        public readonly date: Date,
+        public readonly timeSlot: string,
+        public readonly roomNumber: number
+    ) {}
+}
+```
+
+
+## File: src/modules/movie/domain/models/age-restriction.value-object.ts
+```
+export class AgeRestriction {
+    private readonly value: number;
+
+    constructor(value: number) {
+        if (value < 0) {
+            throw new Error('Age restriction can not be negative')
+        }
+        this.value = value;
+    }
+
+    public getValue(): number {
+        return this.value;
+    }
+
+    // Domain methods
+    public isAllowedForAge(age: number): boolean {
+        return age >= this.value;
+    }
+}
+```
+
+
+## File: src/modules/movie/domain/models/movie.entity.ts
+```
+import { AggregateRoot } from "@nestjs/cqrs";
+import { AgeRestriction } from "./age-restriction.value-object";
+import { Session } from "./session.entity";
+import { MovieCreatedEvent } from "../events/movie-created.event";
+import { SessionCreatedEvent } from "../events/session-created.event";
+
+export class Movie extends AggregateRoot {
+    private readonly _id: string;
+    private _name: string;
+    private _ageRestriction: AgeRestriction;
+    private _sessions: Session[];
+    private readonly _createdAt: Date;
+
+    public getEvents() {
+        return this.getUncommittedEvents(); // method inherited from AggregateRoot
+    }
+
+    constructor(
+        id: string,
+        name: string,
+        ageRestriction: AgeRestriction,
+        sessions: Session[] = [],
+        createdAt = new Date()
+    ) {
+        super();
+        this._id = id;
+        this._name = name;
+        this._ageRestriction = ageRestriction;
+        this._sessions = sessions;
+        this._createdAt = createdAt;
+
+        this.apply(new MovieCreatedEvent(id, name, ageRestriction.getValue()));
+    }
+
+    // Getters
+    public getId(): string {
+        return this._id;
+    }
+
+    public getName(): string {
+        return this._name;
+    }
+
+    public getAgeRestriction(): AgeRestriction {
+        return this._ageRestriction;
+    }
+
+    public getSessions(): Session[] {
+        return [...this._sessions]
+    }
+
+    public getCreatedAt(): Date {
+        return this._createdAt;
+    }
+
+    // Domain methods
+    public updateName(name: string): void {
+        this._name = name;
+    }
+
+    public updateAgeRestriction(ageRestriction: AgeRestriction): void {
+        this._ageRestriction = ageRestriction;
+    }
+
+    public addSession(session: Session): void {
+        if (session.getMovieId() !== this._id) {
+            throw new Error('Session does not belong to this movie')
+        }
+
+        this._sessions.push(session);
+        this.apply(new SessionCreatedEvent(
+            session.getId(),
+            this._id,
+            session.getDate(),
+            session.getTimeSlot().getValue(),
+            session.getRoomNumber()
+        ))
+    }
+
+    public getSession(sessionId: string): Session | undefined {
+        return this._sessions.find(session => session.getId() === sessionId)
+    }
+
+    public removeSession(sessionId: string): void {
+        this._sessions = this._sessions.filter(session => session.getId() !== sessionId);
+    }
+
+    public isAllowedForAge(age: number): boolean {
+        return this._ageRestriction.isAllowedForAge(age);
+    }
+
+    // Factory method
+    public static create(id: string, name: string, ageRestriction: number): Movie {
+        return new Movie(id, name, new AgeRestriction(ageRestriction));
+    }
+}
+```
+
+
+## File: src/modules/movie/domain/models/session.entity.ts
+```
+import { TimeSlot } from "./time-slot.value-object";
+
+export class Session {
+    private readonly _id: string;
+    private readonly _movieId: string;
+    private readonly _date: Date;
+    private readonly _timeSlot: TimeSlot;
+    private readonly _roomNumber: number;
+    private readonly _availableSeats: number;
+    private _bookedSeats: number;
+
+    constructor(
+        id: string,
+        movieId: string,
+        date: Date,
+        timeSlot: TimeSlot,
+        roomNumber: number,
+        availableSeats: number,
+        bookedSeats: number = 0
+    ) {
+        this._id = id;
+        this._movieId = movieId
+        this._date = date;
+        this._timeSlot = timeSlot;
+        this._roomNumber = roomNumber;
+        this._availableSeats = availableSeats;
+        this._bookedSeats = bookedSeats;
+    }
+
+    // Getters
+    public getId(): string {
+        return this._id;
+    }
+
+    public getMovieId(): string {
+        return this._movieId;
+    }
+
+    public getDate(): Date {
+        return this._date;
+    }
+
+    public getTimeSlot(): TimeSlot {
+        return this._timeSlot;
+    }
+
+    public getRoomNumber(): number {
+        return this._roomNumber;
+    }
+
+    public getAvailableSeats(): number {
+        return this._availableSeats;
+    }
+
+    public getBookedSeats(): number {
+        return this._bookedSeats;
+    }
+
+    public getRemainingSeats(): number {
+        return this._availableSeats - this._bookedSeats;
+    }
+
+    // Domain methods
+    public hasAvailableSeats(numberOfSeats: number) {
+        return this.getRemainingSeats() >= numberOfSeats;
+    }
+
+    public bookSeats(numberOfSeats: number = 1): void {
+        if (!this.hasAvailableSeats(numberOfSeats)) {
+            throw new Error('Not enough available seats');
+        }
+        this._bookedSeats += numberOfSeats;
+    }
+
+    public isOnSameDay(other: Session): boolean {
+        return this._date.toDateString() == other.getDate().toDateString();
+    }
+
+    public hasConflictWith(other: Session): boolean {
+        return this.isOnSameDay(other) &&
+                this._roomNumber === other.getRoomNumber() &&
+                this._timeSlot.equals(other.getTimeSlot());
+    }
+}
+```
+
+
+## File: src/modules/movie/domain/models/time-slot.value-object.ts
+```
+export class TimeSlot {
+    private static readonly VALID_SLOTS = [
+        '10:00-12:00', '12:00-14:00', '14:00-16:00',
+        '16:00-18:00', '18:00-20:00', '20:00-22:00',
+        '22:00-00:00'
+    ];
+
+    private constructor(private readonly value: string) {
+        if (!this.isValidTimeSlot(value)) {
+            throw new Error(`Invalid time slot: ${value}`);
+        }
+    }
+
+    private isValidTimeSlot(timeSlot: string): boolean {
+        return TimeSlot.VALID_SLOTS.includes(timeSlot);
+    }
+
+    public getValue(): string {
+        return this.value;
+    }
+
+    public equals(timeSlot: TimeSlot): boolean {
+        return this.value === timeSlot.value;
+    }
+
+    public static fromString(value: string): TimeSlot {
+        const timeSlot = new TimeSlot(value.trim());
+        return timeSlot;
+    }
+}
+```
+
+
+## File: src/modules/movie/movie.module.ts
+```
+import { Module } from "@nestjs/common";
+import { CqrsModule } from "@nestjs/cqrs";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { MovieTypeormEntity } from "./adapters/secondary/persistence/movie.typeorm-entity";
+import { SessionTypeormEntity } from "./adapters/secondary/persistence/session.typeorm-entity";
+import { MovieController } from "./adapters/primary/rest/movie.controller";
+import { MovieService } from "./application/services/movie.service";
+import { IMovieRepository } from "./application/ports/movie-repository.interface";
+import { TypeormMovieRepository } from "./adapters/secondary/persistence/typeorm-movie.repository";
+import { MovieMapper } from "./adapters/secondary/persistence/movie.mapper";
+import { MovieCreatedHandler } from "./application/event-handlers/movie-created.handler";
+import { SessionCreatedHandler } from "./application/event-handlers/session-created.handler";
+
+const eventHandlers = [MovieCreatedHandler, SessionCreatedHandler];
+
+@Module({
+    imports: [
+        CqrsModule,
+        TypeOrmModule.forFeature([MovieTypeormEntity, SessionTypeormEntity])
+    ],
+    controllers: [MovieController],
+    providers: [
+        // Application layer
+        MovieService,
+
+        // Domain layer - Ports implementations(port:adapter)
+        {
+            provide: IMovieRepository,
+            useClass: TypeormMovieRepository
+        },
+
+        // Secondary adapters
+        MovieMapper,
+
+        // Event handlers
+        ...eventHandlers
+    ],
+    exports: [MovieService]
+})
+export class MovieModule {}
+```
+
+
+## File: src/modules/movie/test/integration/movie.integration.spec.ts
+```
+import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { Test, TestingModule } from "@nestjs/testing";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { MovieTypeormEntity } from "../../adapters/secondary/persistence/movie.typeorm-entity";
+import { SessionTypeormEntity } from "../../adapters/secondary/persistence/session.typeorm-entity";
+import { UserTypeormEntity } from "src/modules/auth/adapters/secondary/persistence/user.typeorm-entity";
+import { PassportModule } from "@nestjs/passport";
+import { JwtModule } from "@nestjs/jwt";
+import { MovieModule } from "../../movie.module";
+import { AuthModule } from "src/modules/auth/auth.module";
+import * as request from "supertest";
+
+describe('Movie Integration Tests', () => {
+    let app: INestApplication;
+    let managerToken: string;
+    let customerToken: string;
+    let movieId: string;
+
+    beforeAll(async () => {
+        const moduleFixture: TestingModule = await Test.createTestingModule({
+            imports: [
+                ConfigModule.forRoot({
+                    isGlobal: true,
+                    envFilePath: '.env.test'
+                }),
+                TypeOrmModule.forRoot({
+                    type: 'sqlite',
+                    database: ':memory:',
+                    entities: [MovieTypeormEntity, SessionTypeormEntity, UserTypeormEntity],
+                    synchronize: true,
+                    extra: {
+                        foreign_keys: true
+                    }
+                }),
+                PassportModule.register({ defaultStrategy: 'jwt' }),
+                JwtModule.register({
+                    secret: '19d83ec3dc9d1a50763810d3719d8558df831410933395341035d3fa9b8d14dc',
+                    signOptions: { expiresIn: '1h' }
+                }),
+                AuthModule,
+                MovieModule
+            ],
+        }).compile();
+
+        app = moduleFixture.createNestApplication();
+        app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+        await app.init();
+
+        // Register and login users for testing
+        await request(app.getHttpServer())
+            .post('/auth/register')
+            .send({
+                username: 'testmanager',
+                password: 'Password123!',
+                age: 30,
+                role: 'manager'
+            });
+
+        const managerLogin = await request(app.getHttpServer())
+            .post('/auth/login')
+            .send({
+                username: 'testmanager',
+                password: 'Password123!'
+            });
+        managerToken = managerLogin.body.accessToken;
+
+        await request(app.getHttpServer())
+            .post('/auth/register')
+            .send({
+                username: 'testcustomer',
+                password: 'Password123!',
+                age: 15,
+                role: 'customer'
+            });
+
+        const customerLogin = await request(app.getHttpServer())
+            .post('/auth/login')
+            .send({
+                username: 'testcustomer',
+                password: 'Password123!'
+            });
+        customerToken = customerLogin.body.accessToken;
+    });
+
+    afterAll(async () => {
+        await app.close();
+    });
+
+    describe('Movie Endpoints', () => {
+        describe('POST /movies - Create a new movie', () => {
+            it('should create a new movie as manager', async () => {
+                const response = await request(app.getHttpServer())
+                    .post('/movies')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        name: 'Test Movie',
+                        ageRestriction: 12
+                    })
+                    .expect(201);
+
+                expect(response.body).toHaveProperty('id');
+                expect(response.body.name).toBe('Test Movie');
+                expect(response.body.ageRestriction).toBe(12);
+                movieId = response.body.id;
+            });
+
+            it('should reject movie creation by customer', async () => {
+                await request(app.getHttpServer())
+                    .post('/movies')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .send({
+                        name: 'Customer Movie',
+                        ageRestriction: 12
+                    })
+                    .expect(403);
+            });
+        });
+
+        describe('POST /movies/:id/sessions - Add a session to a movie', () => {
+            it('should add a session to a movie as manager', async () => {
+                const response = await request(app.getHttpServer())
+                    .post(`/movies/${movieId}/sessions`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        date: '2024-12-25',
+                        timeSlot: '14:00-16:00',
+                        roomNumber: 1,
+                        availableSeats: 100
+                    })
+                    .expect(201);
+
+                expect(response.body.sessions).toHaveLength(1);
+                expect(response.body.sessions[0].timeSlot).toBe('14:00-16:00');
+                expect(response.body.sessions[0].roomNumber).toBe(1);
+            });
+
+            it('should reject session creation with invalid time slot', async () => {
+                await request(app.getHttpServer())
+                    .post(`/movies/${movieId}/sessions`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        date: '2024-12-25',
+                        timeSlot: '11:00-13:00',
+                        roomNumber: 1,
+                        availableSeats: 100
+                    })
+                    .expect(400);
+            });
+
+            it('should prevent double booking of room', async () => {
+                await request(app.getHttpServer())
+                    .post(`/movies/${movieId}/sessions`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        date: '2024-12-25',
+                        timeSlot: '14:00-16:00',
+                        roomNumber: 1,
+                        availableSeats: 100
+                    })
+                    .expect(409);
+            });
+        });
+
+        describe('PUT /movies/:id - Update movie details', () => {
+            it('should update movie details as manager', async () => {
+                const response = await request(app.getHttpServer())
+                    .put(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        name: 'Updated Movie Name',
+                        ageRestriction: 16
+                    })
+                    .expect(200);
+
+                expect(response.body.name).toBe('Updated Movie Name');
+                expect(response.body.ageRestriction).toBe(16);
+            });
+        });
+
+        describe('GET /movies - List all movies', () => {
+            it('should list all movies with sessions', async () => {
+                const response = await request(app.getHttpServer())
+                    .get('/movies')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(200);
+
+                expect(Array.isArray(response.body)).toBe(true);
+                expect(response.body.length).toBeGreaterThan(0);
+                expect(response.body[0]).toHaveProperty('sessions');
+                expect(Array.isArray(response.body[0].sessions)).toBe(true);
+            });
+
+            it('should filter movies by age restriction for customer', async () => {
+                await request(app.getHttpServer())
+                    .post('/movies')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        name: 'Adult Movie',
+                        ageRestriction: 18
+                    });
+
+                const response = await request(app.getHttpServer())
+                    .get('/movies')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .expect(200);
+
+                const adultMovies = response.body.filter(
+                    (movie: any) => movie.ageRestriction > 15
+                );
+                expect(adultMovies).toHaveLength(0);
+            });
+
+            it('should allow sorting movies by name', async () => {
+                const response = await request(app.getHttpServer())
+                    .get('/movies?sortBy=name&sortOrder=ASC')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(200);
+
+                const names = response.body.map((m: any) => m.name);
+                const sortedNames = [...names].sort();
+                expect(names).toEqual(sortedNames);
+            });
+        });
+
+        describe('GET /movies/:id - Get movie by ID', () => {
+            it('should get movie by ID', async () => {
+                const response = await request(app.getHttpServer())
+                    .get(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(200);
+
+                expect(response.body.id).toBe(movieId);
+                expect(response.body).toHaveProperty('sessions');
+            });
+        });
+
+        describe('DELETE /movies/:id - Delete a movie', () => {
+            it('should allow deletion of a movie with sessions', async () => {
+                const movieResponse = await request(app.getHttpServer())
+                    .get(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`);
+
+                await request(app.getHttpServer())
+                    .delete(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(204);
+
+                await request(app.getHttpServer())
+                    .get(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(404);
+            });
+        });
+    });
+});
+```
+
+
+## File: src/modules/movie/test/unit/application/movie.service.spec.ts
+```
+import { Test, TestingModule } from '@nestjs/testing';
+import { MovieService } from 'src/modules/movie/application/services/movie.service';
+import { IMovieRepository } from 'src/modules/movie/application/ports/movie-repository.interface';
+import { CreateMovieCommand } from 'src/modules/movie/application/commands/create-movie.command';
+import { AddSessionCommand } from 'src/modules/movie/application/commands/add-session.command';
+import { Movie } from 'src/modules/movie/domain/models/movie.entity';
+import { NotFoundException, ConflictException } from '@nestjs/common';
+import { v4 as uuidv4 } from 'uuid';
+
+describe('MovieService', () => {
+    let service: MovieService;
+    let repository: jest.Mocked<IMovieRepository>;
+
+    beforeEach(async () => {
+        const mockRepository = {
+            save: jest.fn(),
+            findById: jest.fn(),
+            findAll: jest.fn(),
+            delete: jest.fn(),
+            existsById: jest.fn(),
+            checkRoomAvailability: jest.fn(),
+        };
+
+        const module: TestingModule = await Test.createTestingModule({
+            providers: [
+                MovieService,
+                {
+                    provide: IMovieRepository,
+                    useValue: mockRepository,
+                },
+            ],
+        }).compile();
+
+        service = module.get<MovieService>(MovieService);
+        repository = module.get(IMovieRepository);
+    });
+
+    describe('createMovie', () => {
+        it('should create a movie successfully', async () => {
+            const command = new CreateMovieCommand('Test Movie', 12);
+            const savedMovie = Movie.create(uuidv4(), command.name, command.ageRestriction);
+            repository.save.mockResolvedValue(savedMovie);
+
+            const result = await service.createMovie(command);
+
+            expect(result).toBeDefined();
+            expect(result.getName()).toBe(command.name);
+            expect(result.getAgeRestriction().getValue()).toBe(command.ageRestriction);
+            expect(repository.save).toHaveBeenCalled();
+        });
+    });
+
+    describe('addSession', () => {
+        it('should add session to existing movie', async () => {
+            const movieId = uuidv4();
+            const existingMovie = Movie.create(movieId, 'Test Movie', 12);
+            const command = new AddSessionCommand(
+                movieId,
+                new Date(),
+                '10:00-12:00',
+                1,
+                100
+            );
+
+            repository.findById.mockResolvedValue(existingMovie);
+            repository.checkRoomAvailability.mockResolvedValue(true);
+            repository.save.mockResolvedValue(existingMovie);
+
+            const result = await service.addSession(command);
+
+            expect(result).toBeDefined();
+            expect(result.getSessions()).toHaveLength(1);
+            expect(repository.checkRoomAvailability).toHaveBeenCalled();
+            expect(repository.save).toHaveBeenCalled();
+        });
+
+        it('should throw NotFoundException for non-existent movie', async () => {
+            const command = new AddSessionCommand(
+                uuidv4(),
+                new Date(),
+                '10:00-12:00',
+                1,
+                100
+            );
+
+            repository.findById.mockResolvedValue(null);
+
+            await expect(service.addSession(command))
+                .rejects
+                .toThrow(NotFoundException);
+        });
+
+        it('should throw ConflictException for room booking conflict', async () => {
+            const movieId = uuidv4();
+            const existingMovie = Movie.create(movieId, 'Test Movie', 12);
+            const command = new AddSessionCommand(
+                movieId,
+                new Date(),
+                '10:00-12:00',
+                1,
+                100
+            );
+
+            repository.findById.mockResolvedValue(existingMovie);
+            repository.checkRoomAvailability.mockResolvedValue(false);
+
+            await expect(service.addSession(command))
+                .rejects
+                .toThrow(ConflictException);
+        });
+    });
+
+});
+```
+
+
+## File: src/modules/movie/test/unit/domain/age-restriction.value-object.spec.ts
+```
+import { AgeRestriction } from "src/modules/movie/domain/models/age-restriction.value-object";
+
+describe('AgeRestriction', () => {
+    describe('constructor', () => {
+        it('should create a valid age restriction', () => {
+            const ageRestriction = new AgeRestriction(12);
+            expect(ageRestriction.getValue()).toBe(12);
+        });
+
+        it('should throw error for negative age', () => {
+            expect(() => new AgeRestriction(-1)).toThrow('Age restriction can not be negative');
+        });
+    });
+
+    describe('isAllowedForAge', () => {
+        const ageRestriction = new AgeRestriction(12);
+
+        it('should allow access for older age', () => {
+            expect(ageRestriction.isAllowedForAge(15)).toBe(true);
+        });
+
+        it('should allow access for exact age', () => {
+            expect(ageRestriction.isAllowedForAge(12)).toBe(true);
+        });
+
+        it('should not allow access for younger age', () => {
+            expect(ageRestriction.isAllowedForAge(10)).toBe(false);
+        });
+    });
+});
+```
+
+
+## File: src/modules/movie/test/unit/domain/movie.entity.spec.ts
+```
+import { Movie } from 'src/modules/movie/domain/models/movie.entity';
+import { Session } from 'src/modules/movie/domain/models/session.entity';
+import { AgeRestriction } from 'src/modules/movie/domain/models/age-restriction.value-object';
+import { TimeSlot } from 'src/modules/movie/domain/models/time-slot.value-object';
+import { v4 as uuidv4 } from 'uuid';
+import { MovieCreatedEvent } from 'src/modules/movie/domain/events/movie-created.event';
+import { SessionCreatedEvent } from 'src/modules/movie/domain/events/session-created.event';
+
+describe('Movie', () => {
+    let movie: Movie;
+    const movieId = uuidv4();
+
+    beforeEach(() => {
+        movie = Movie.create(
+            movieId,
+            'Test Movie',
+            12
+        );
+    });
+
+    describe('create', () => {
+
+        it('should create a movie with correct properties', () => {
+            expect(movie.getId()).toBe(movieId);
+            expect(movie.getName()).toBe('Test Movie');
+            expect(movie.getAgeRestriction().getValue()).toBe(12);
+            expect(movie.getSessions()).toHaveLength(0);
+        });
+
+        it('should apply MovieCreatedEvent', () => {
+            const events = movie.getEvents();
+            const event = events[0] as MovieCreatedEvent;
+            expect(event.constructor.name).toBe('MovieCreatedEvent');
+            expect(event.movieId).toBe(movieId);
+        });
+    });
+
+    describe('addSession', () => {
+        it('should add a valid session', () => {
+            const session = new Session(
+                uuidv4(),
+                movieId,
+                new Date(),
+                TimeSlot.fromString('10:00-12:00'),
+                1,
+                100
+            );
+
+            movie.addSession(session);
+            expect(movie.getSessions()).toHaveLength(1);
+            expect(movie.getSessions()[0]).toBe(session);
+        });
+
+        it('should throw error when adding session for different movie', () => {
+            const session = new Session(
+                uuidv4(),
+                uuidv4(), // Different movie ID
+                new Date(),
+                TimeSlot.fromString('10:00-12:00'),
+                1,
+                100
+            );
+
+            expect(() => movie.addSession(session))
+                .toThrow('Session does not belong to this movie');
+        });
+
+        it('should apply SessionCreatedEvent', () => {
+            const session = new Session(
+                uuidv4(),
+                movieId,
+                new Date(),
+                TimeSlot.fromString('10:00-12:00'),
+                1,
+                100
+            );
+
+            movie.addSession(session);
+            
+            const events = movie.getEvents();
+            const event = events[1] as SessionCreatedEvent;
+            expect(event.constructor.name).toBe('SessionCreatedEvent');
+        });
+    });
+
+    describe('updateName', () => {
+        it('should update movie name', () => {
+            movie.updateName('New Name');
+            expect(movie.getName()).toBe('New Name');
+        });
+    });
+
+    describe('updateAgeRestriction', () => {
+        it('should update age restriction', () => {
+            movie.updateAgeRestriction(new AgeRestriction(16));
+            expect(movie.getAgeRestriction().getValue()).toBe(16);
+        });
+    });
+
+    describe('isAllowedForAge', () => {
+        it('should allow access for appropriate age', () => {
+            expect(movie.isAllowedForAge(15)).toBe(true);
+        });
+
+        it('should not allow access for underage', () => {
+            expect(movie.isAllowedForAge(10)).toBe(false);
+        });
+    });
+});
+```
+
+
+## File: src/modules/movie/test/unit/domain/session.entity.spec.ts
+```
+import { Session } from 'src/modules/movie/domain/models/session.entity';
+import { TimeSlot } from 'src/modules/movie/domain/models/time-slot.value-object';
+import { v4 as uuidv4 } from 'uuid';
+
+describe('Session', () => {
+    let session: Session;
+    const mockDate = new Date('2024-02-23');
+    const mockTimeSlot = TimeSlot.fromString('10:00-12:00');
+
+    beforeEach(() => {
+        session = new Session(
+            uuidv4(),
+            uuidv4(),
+            mockDate,
+            mockTimeSlot,
+            1,
+            100
+        );
+    });
+
+    describe('booking seats', () => {
+        it('should successfully book available seats', () => {
+            session.bookSeats(2);
+            expect(session.getBookedSeats()).toBe(2);
+            expect(session.getRemainingSeats()).toBe(98);
+        });
+
+        it('should throw error when booking more seats than available', () => {
+            expect(() => session.bookSeats(101)).toThrow('Not enough available seats');
+        });
+    });
+
+    describe('time and room conflicts', () => {
+        it('should detect conflict with same time and room on same day', () => {
+            const conflictingSession = new Session(
+                uuidv4(),
+                uuidv4(),
+                mockDate,
+                mockTimeSlot,
+                1,
+                100
+            );
+            expect(session.hasConflictWith(conflictingSession)).toBe(true);
+        });
+
+        it('should not detect conflict with different room', () => {
+            const differentRoomSession = new Session(
+                uuidv4(),
+                uuidv4(),
+                mockDate,
+                mockTimeSlot,
+                2,
+                100
+            );
+            expect(session.hasConflictWith(differentRoomSession)).toBe(false);
+        });
+
+        it('should not detect conflict with different time slot', () => {
+            const differentTimeSession = new Session(
+                uuidv4(),
+                uuidv4(),
+                mockDate,
+                TimeSlot.fromString('12:00-14:00'),
+                1,
+                100
+            );
+            expect(session.hasConflictWith(differentTimeSession)).toBe(false);
+        });
+
+        it('should not detect conflict with different day', () => {
+            const differentDaySession = new Session(
+                uuidv4(),
+                uuidv4(),
+                new Date('2024-02-24'),
+                mockTimeSlot,
+                1,
+                100
+            );
+            expect(session.hasConflictWith(differentDaySession)).toBe(false);
+        });
+    });
+});
+```
+
+
+## File: src/modules/movie/test/unit/domain/time-slot.value-object.spec.ts
+```
+import { TimeSlot } from "src/modules/movie/domain/models/time-slot.value-object";
+
+describe('TimeSlot', () => {
+    describe('fromString', () => {
+        it('should create a valid time slot', () => {
+            const timeSlot = TimeSlot.fromString('10:00-12:00');
+            expect(timeSlot.getValue()).toBe('10:00-12:00');
+        });
+
+        it('should throw error for invalid time slot', () => {
+            expect(() => TimeSlot.fromString('09:00-11:00')).toThrow('Invalid time slot');
+        });
+
+        it('should handle whitespace in time slot string', () => {
+            const timeSlot = TimeSlot.fromString('  10:00-12:00  ');
+            expect(timeSlot.getValue()).toBe('10:00-12:00');
+        });
+    });
+
+    describe('equals', () => {
+        it('should return true for same time slots', () => {
+            const slot1 = TimeSlot.fromString('10:00-12:00');
+            const slot2 = TimeSlot.fromString('10:00-12:00');
+            expect(slot1.equals(slot2)).toBe(true);
+        });
+
+        it('should return false for different time slots', () => {
+            const slot1 = TimeSlot.fromString('10:00-12:00');
+            const slot2 = TimeSlot.fromString('12:00-14:00');
+            expect(slot1.equals(slot2)).toBe(false);
+        });
+    });
+});
+```
+
+
+## File: src/modules/movie/test/unit/infrastructure/movie.mapper.spec.ts
+```
+import { MovieMapper } from 'src/modules/movie/adapters/secondary/persistence/movie.mapper';
+import { MovieTypeormEntity } from 'src/modules/movie/adapters/secondary/persistence/movie.typeorm-entity';
+import { Movie } from 'src/modules/movie/domain/models/movie.entity';
+import { Session } from 'src/modules/movie/domain/models/session.entity';
+import { v4 as uuidv4 } from 'uuid';
+import { TimeSlot } from 'src/modules/movie/domain/models/time-slot.value-object';
+
+describe('MovieMapper', () => {
+    let mapper: MovieMapper;
+
+    beforeEach(() => {
+        mapper = new MovieMapper();
+    });
+    
+
+    describe('toDomain', () => {
+        it('should map TypeORM entity to domain model', () => {
+            const movieEntity = new MovieTypeormEntity();
+            movieEntity.id = uuidv4();
+            movieEntity.name = 'Test Movie';
+            movieEntity.ageRestriction = 12;
+            movieEntity.sessions = [];
+            movieEntity.createdAt = new Date();
+
+            const domainMovie = mapper.toDomain(movieEntity);
+
+            expect(domainMovie).toBeDefined();
+            expect(domainMovie?.getId()).toBe(movieEntity.id);
+            expect(domainMovie?.getName()).toBe(movieEntity.name);
+            expect(domainMovie?.getAgeRestriction().getValue()).toBe(movieEntity.ageRestriction);
+        });
+
+        it('should return null for null input', () => {
+            expect(mapper.toDomain(null as unknown as MovieTypeormEntity)).toBeNull();
+        });
+    });
+
+    describe('toPersistence', () => {
+        it('should map domain model to TypeORM entity', () => {
+            const movieId = uuidv4();
+            const domainMovie = Movie.create(movieId, 'Test Movie', 12);
+            
+            const persistenceMovie = mapper.toPersistence(domainMovie);
+
+            expect(persistenceMovie).toBeDefined();
+            expect(persistenceMovie.id).toBe(movieId);
+            expect(persistenceMovie.name).toBe('Test Movie');
+            expect(persistenceMovie.ageRestriction).toBe(12);
+            expect(persistenceMovie.sessions).toEqual([]);
+        });
+
+        it('should map domain model with sessions to TypeORM entity', () => {
+            const movieId = uuidv4();
+            const movie = Movie.create(movieId, 'Test Movie', 12);
+            const session = new Session(
+                uuidv4(),
+                movieId,
+                new Date(),
+                TimeSlot.fromString('10:00-12:00'),
+                1,
+                100
+            );
+            movie.addSession(session);
+
+            const persistenceMovie = mapper.toPersistence(movie);
+
+            expect(persistenceMovie.sessions).toHaveLength(1);
+            expect(persistenceMovie.sessions[0].movieId).toBe(movieId);
+            expect(persistenceMovie.sessions[0].roomNumber).toBe(1);
+            expect(persistenceMovie.sessions[0].timeSlot).toBe('10:00-12:00');
+        });
+    });
+});
+```
+
+
+## File: src/modules/ticket/adapters/primary/dtos/buy-ticket.dto.ts
+```
+import { ApiProperty } from "@nestjs/swagger";
+import { IsNotEmpty, IsString } from "class-validator";
+
+export class BuyTicketDto {
+    @ApiProperty({
+        description: 'ID of the movie',
+        example: 'movie-123'
+    })
+    @IsNotEmpty()
+    @IsString()
+    movieId: string;
+
+    @ApiProperty({
+        description: 'ID of the session',
+        example: 'session-123'
+    })
+    @IsNotEmpty()
+    @IsString()
+    sessionId: string;
+}
+```
+
+
+## File: src/modules/ticket/adapters/primary/dtos/watch-movie.dto.ts
+```
+
+```
+
+
+## File: src/modules/ticket/adapters/primary/rest/ticket.controller.ts
+```
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { CurrentUser } from "src/modules/auth/adapters/primary/rest/decorators/current-user.decorator";
+import { JwtAuthGuard } from "src/modules/auth/adapters/secondary/security/jwt-adapter/jwt-auth.guard";
+import { TicketService } from "src/modules/ticket/application/services/ticket.service";
+import { BuyTicketDto } from "../dtos/buy-ticket.dto";
+import { BuyTicketCommand } from "src/modules/ticket/application/commands/buy-ticket.command";
+import { session } from "passport";
+import { UseTicketCommand } from "src/modules/ticket/application/commands/use-ticket.command";
+
+@ApiTags('tickets')
+@Controller('tickets')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
+export class TicketController {
+    constructor(private readonly ticketService: TicketService) { }
+
+    @Post('buy')
+    @ApiOperation({ summary: 'Buy a ticket for a movie session' })
+    @ApiResponse({
+        status: 201,
+        description: 'Ticket purchased successfully',
+        schema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                movieId: { type: 'string' },
+                sessionId: { type: 'string' },
+                purchaseDate: { type: 'string', format: 'date-time' }
+            }
+        }
+    })
+    @ApiResponse({ status: 400, description: 'Bad request' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 404, description: 'Movie or session not found' })
+    async buyTicket(@CurrentUser() user: any, @Body() buyTicketDto: BuyTicketDto) {
+        const command = new BuyTicketCommand(
+            user.id,
+            buyTicketDto.movieId,
+            buyTicketDto.sessionId
+        );
+
+        const ticket = await this.ticketService.buyTicket(command);
+
+        return {
+            id: ticket.getId(),
+            movieId: ticket.getMovieId(),
+            sessionId: ticket.getSessionId(),
+            purchaseDate: ticket.getPurchaseDate()
+        }
+    }
+
+    @Post(':id/use')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Use a ticket to watch a movie' })
+    @ApiResponse({
+        status: 200,
+        description: 'Ticket used successfully',
+        schema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                movieId: { type: 'string' },
+                sessionId: { type: 'string' },
+                usedDate: { type: 'string', format: 'date-time' }
+            }
+        }
+    })
+    @ApiResponse({ status: 400, description: 'Bad request' })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    @ApiResponse({ status: 404, description: 'Ticket not found' })
+    @ApiResponse({ status: 409, description: 'Ticket already used' })
+    async useTicket(@CurrentUser() user: any, @Param('id') ticketId: string) {
+        const command = new UseTicketCommand(user.id, ticketId);
+        const ticket = await this.ticketService.useTicket(command);
+
+        return {
+            id: ticket.getId(),
+            movieId: ticket.getMovieId(),
+            sessionId: ticket.getSessionId(),
+            usedDate: ticket.getUsedDate()
+        }
+    }
+
+    @Get('unused')
+    @ApiOperation({ summary: 'Get user unused tickets' })
+    @ApiResponse({
+        status: 200,
+        description: 'Unused tickets retrieved successfully',
+        schema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string' },
+                    movieId: { type: 'string' },
+                    sessionId: { type: 'string' },
+                    purchaseDate: { type: 'string', format: 'date-time' }
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 404, description: 'User not found' })
+    async getUserUnusedTickets(@CurrentUser() user: any) {
+        const tickets = await this.ticketService.getUserUnusedTickets(user.id);
+
+        return tickets.map(ticket => ({
+            id: ticket.getId(),
+            movieId: ticket.getMovieId(),
+            sessionId: ticket.getSessionId(),
+            purchaseDate: ticket.getPurchaseDate()
+        }));
+    }
+
+    @Get('history')
+    @ApiOperation({ summary: 'Get user watch history' })
+    @ApiResponse({
+        status: 200,
+        description: 'Watch history retrieved successfully',
+        schema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string' },
+                    movieId: { type: 'string' },
+                    sessionId: { type: 'string' },
+                    purchaseDate: { type: 'string', format: 'date-time' },
+                    usedDate: { type: 'string', format: 'date-time' }
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 401, description: 'Unauthorized' })
+    async getWatchHistory(@CurrentUser() user: any) {
+        const tickets = await this.ticketService.getUserWatchHistory(user.id);
+
+        return tickets.map(ticket => ({
+            id: ticket.getId(),
+            movieId: ticket.getMovieId(),
+            sessionId: ticket.getSessionId(),
+            purchaseDate: ticket.getPurchaseDate(),
+            usedDate: ticket.getUsedDate()
+        }));
+    }
+}
+```
+
+
+## File: src/modules/ticket/adapters/secondary/persistence/ticket.mapper.ts
+```
+import { Injectable } from "@nestjs/common";
+import { TicketTypeormEntity } from "./ticket.typeorm-entity";
+import { Ticket } from "src/modules/ticket/domain/models/ticket.entity";
+
+@Injectable()
+export class TicketMapper {
+    toDomain(ticketEntity: TicketTypeormEntity): Ticket | null {
+        if (!ticketEntity) return null;
+
+        return new Ticket(
+            ticketEntity.id,
+            ticketEntity.userId,
+            ticketEntity.movieId,
+            ticketEntity.sessionId,
+            ticketEntity.purchaseDate,
+            ticketEntity.used,
+            ticketEntity.usedDate || undefined
+        )
+    }
+
+    toPersistance(ticket: Ticket): TicketTypeormEntity {
+        const ticketEntity = new TicketTypeormEntity();
+        ticketEntity.id = ticket.getId(),
+        ticketEntity.userId = ticket.getUserId();
+        ticketEntity.movieId = ticket.getMovieId();
+        ticketEntity.sessionId = ticket.getSessionId();
+        ticketEntity.purchaseDate = ticket.getPurchaseDate();
+        ticketEntity.used = ticket.isUsed();
+        ticketEntity.usedDate = ticket.getUsedDate() || null;
+        
+        return ticketEntity;
+    }
+}
+```
+
+
+## File: src/modules/ticket/adapters/secondary/persistence/ticket.typeorm-entity.ts
+```
+import { Column, CreateDateColumn, Entity, PrimaryColumn } from "typeorm";
+
+@Entity('tickets')
+export class TicketTypeormEntity {
+    @PrimaryColumn('uuid')
+    id: string;
+
+    @Column('uuid')
+    userId: string;
+
+    @Column('uuid')
+    movieId: string;
+
+    @Column('uuid')
+    sessionId: string;
+
+    @CreateDateColumn()
+    purchaseDate: Date;
+
+    @Column('boolean', {default: false})
+    used: boolean;
+
+    @Column({
+        type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamp', 
+        nullable: true
+    })
+    usedDate: Date | null;
+}
+```
+
+
+## File: src/modules/ticket/adapters/secondary/persistence/typeorm-ticket.repositoty.ts
+```
+import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { ITicketRepository } from "src/modules/ticket/application/ports/ticket-repository.interface";
+import { TicketTypeormEntity } from "./ticket.typeorm-entity";
+import { Repository } from "typeorm";
+import { TicketMapper } from "./ticket.mapper";
+import { Ticket } from "src/modules/ticket/domain/models/ticket.entity";
+
+@Injectable()
+export class TypeormTicketRepository implements ITicketRepository {
+    constructor(
+        @InjectRepository(TicketTypeormEntity)
+        private readonly ticketRepository: Repository<TicketTypeormEntity>,
+        private readonly ticketMapper: TicketMapper
+    ) {}
+
+    async save(ticket: Ticket): Promise<Ticket> {
+        const ticketEntity = this.ticketMapper.toPersistance(ticket);
+        const savedEntity = await this.ticketRepository.save(ticketEntity);
+        const domainTicket = this.ticketMapper.toDomain(savedEntity);
+
+        if (!domainTicket) {
+            throw new Error('Failed to map saved Entity back to domain model');
+        }
+
+        return domainTicket;
+    }
+
+    async findById(id: string): Promise<Ticket | null> {
+        const ticketEntity = await this.ticketRepository.findOne({where: {id}});
+
+        return ticketEntity ? this.ticketMapper.toDomain(ticketEntity) : null;
+    }
+
+    async findByUserAndSession(userId: string, sessionId: string): Promise<Ticket | null> {
+        const ticketEntity = await this.ticketRepository.findOne({
+            where: {
+                userId,
+                sessionId
+            }
+        });
+
+        return ticketEntity ? this.ticketMapper.toDomain(ticketEntity) : null;
+    }
+
+    async findBySession(sessionId: string): Promise<Ticket[]> {
+        const ticketEntities = await this.ticketRepository.find({
+            where: {
+                sessionId
+            },
+            order: {
+                purchaseDate: 'ASC'
+            }
+        });
+
+        return this.mapEntitiesToDomain(ticketEntities);
+    }
+
+    async findByUser(userId: string): Promise<Ticket[]> {
+        const ticketEntities = await this.ticketRepository.find({
+            where: {userId},
+            order: {
+                purchaseDate: 'DESC'
+            }
+        });
+
+        return this.mapEntitiesToDomain(ticketEntities);
+    }
+
+    async findUsedTicketsByUser(userId: string): Promise<Ticket[]> {
+        const ticketEntities = await this.ticketRepository.find({
+            where: {
+                userId,
+                used: true
+            },
+            order: {
+                purchaseDate: 'DESC'
+            }
+        });
+
+        return this.mapEntitiesToDomain(ticketEntities);
+    }
+
+    async findUnusedTicketsByUser(userId: string): Promise<Ticket[]> {
+        const ticketEntities = await this.ticketRepository.find({
+            where: { 
+                userId,
+                used: false 
+            },
+            order: {
+                purchaseDate: 'DESC'
+            }
+        });
+
+        return this.mapEntitiesToDomain(ticketEntities);
+    }
+
+    private mapEntitiesToDomain(entities: TicketTypeormEntity[]): Ticket[] {
+        return entities
+            .map(entity => this.ticketMapper.toDomain(entity))
+            .filter(ticket => ticket !== null) as Ticket[]
+    }
+
+    async delete(ticketId: string): Promise<void> {
+        await this.ticketRepository.delete(ticketId);
+    }
+}
+```
+
+
+## File: src/modules/ticket/application/commands/buy-ticket.command.ts
+```
+export class BuyTicketCommand {
+    constructor(
+        public readonly userId: string,
+        public readonly movieId: string,
+        public readonly sessionId: string
+    ) {}
+}
+```
+
+
+## File: src/modules/ticket/application/commands/use-ticket.command.ts
+```
+export class UseTicketCommand {
+    constructor(
+        public readonly userId: string,
+        public readonly ticketId: string
+    ) {}
+}
+```
+
+
+## File: src/modules/ticket/application/event-handlers/ticket-created.handler.ts
+```
+import { EventsHandler, IEventHandler } from "@nestjs/cqrs";
+import { TicketCreatedEvent } from "../../domain/events/ticket-created.event";
+import { Logger } from "@nestjs/common";
+
+@EventsHandler(TicketCreatedEvent)
+export class TicketCreatedHandler implements IEventHandler<TicketCreatedEvent> {
+    private readonly logger = new Logger(TicketCreatedHandler.name);
+
+    handle(event: TicketCreatedEvent) {
+        this.logger.log(
+            `Ticket created - ID: ${event.ticketId}, User: ${event.userId}, Movie: ${event.movieId}, Session: ${event.sessionId}`
+        );
+
+        // additional handling could be added
+        // - send confirmation email
+        // - notify staff
+        // - etc
+    }
+}
+```
+
+
+## File: src/modules/ticket/application/event-handlers/ticket-used.handler.ts
+```
+import { EventsHandler, IEventHandler } from "@nestjs/cqrs";
+import { TicketUsedEvent } from "../../domain/events/ticket-used-event";
+import { Logger } from "@nestjs/common";
+
+@EventsHandler(TicketUsedEvent)
+export class TicketUsedHandler implements IEventHandler<TicketUsedEvent> {
+    private readonly logger = new Logger(TicketUsedHandler.name);
+
+    handle(event: TicketUsedEvent) {
+        this.logger.log(
+            `Ticket used - ID: ${event.ticketId}, User: ${event.userId}, Movie: ${event.movieId}`
+        );
+
+        // additional handling could be:
+        // - generating viewing statistics
+        // - triggering loyalty program points
+        // - etc
+    }
+}
+```
+
+
+## File: src/modules/ticket/application/ports/ticket-repository.interface.ts
+```
+import { Ticket } from "../../domain/models/ticket.entity";
+
+export abstract class ITicketRepository {
+    abstract save(ticket: Ticket): Promise<Ticket>;
+    abstract findById(id: string): Promise<Ticket | null>;
+    abstract findByUserAndSession(userId: string, sessionId: string): Promise<Ticket | null>
+    abstract findBySession(sessionId: string): Promise<Ticket[]>;
+    abstract findByUser(userId: string): Promise<Ticket[]>;
+    abstract findUsedTicketsByUser(userId: string): Promise<Ticket[]>
+    abstract findUnusedTicketsByUser(userId: string): Promise<Ticket[]>
+    abstract delete(ticketId: string): Promise<void>;
+}
+```
+
+
+## File: src/modules/ticket/application/services/ticket.service.ts
+```
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ITicketRepository } from "../ports/ticket-repository.interface";
+import { MovieService } from "src/modules/movie/application/services/movie.service";
+import { Userservice } from "src/modules/auth/application/services/user.service";
+import { Ticket } from "../../domain/models/ticket.entity";
+import {v4 as uuidv4} from "uuid";
+import { BuyTicketCommand } from "../commands/buy-ticket.command";
+import { UseTicketCommand } from "../commands/use-ticket.command";
+
+@Injectable()
+export class TicketService {
+    constructor(
+        private readonly ticketRepository: ITicketRepository,
+        private readonly movieService: MovieService,
+        private readonly userService: Userservice
+    ) {}
+
+    /**
+     * Buys a ticket for a user for a given session.
+     * 
+     * This method first verifies that the user exists and has a valid age for the movie.
+     * It then uses the MovieService to book a seat for the user in the session.
+     * If the user already has a ticket for this session, a ConflictException is thrown.
+     * 
+     * @param command BuyTicketCommand object containing the user id, movie id and session id.
+     * @returns A Ticket object representing the newly created ticket.
+     * @throws NotFoundException if the user does not exist.
+     * @throws BadRequestException if the user is not old enough for the movie.
+     * @throws ConflictException if the user already has a ticket for this session.
+     */
+    async buyTicket(command: BuyTicketCommand): Promise<Ticket> {
+        const {userId, movieId, sessionId} = command;
+
+        // Verify user exists and get details
+        const user = await this.userService.getUserById(userId);
+
+        // Let MovieService handle all movie/session related validations
+        await this.movieService.bookSessionSeats(movieId, sessionId, 1, user.getAge());
+
+        // Check if user has already a ticket for this session
+        const existingTickets = await this.ticketRepository.findByUserAndSession(userId, sessionId);
+        if (existingTickets) {
+            throw new ConflictException('User already has a ticket for this session');
+        }
+
+        // Create new ticket
+        const ticket = new Ticket(
+            uuidv4(),
+            userId,
+            movieId,
+            sessionId
+        );
+
+        return this.ticketRepository.save(ticket);
+    }
+
+    /**
+     * Uses a ticket for a user.
+     * 
+     * This method first verifies that the user owns the ticket and that the ticket has not been used before.
+     * It then verifies that the movie and session still exist.
+     * If the verifications pass, the ticket is marked as used and saved back to ticket repository
+     * 
+     * @param command UseTicketCommand object containing the user id and ticket id.
+     * @returns The updated Ticket object.
+     * @throws NotFoundException if the ticket does not exist.
+     * @throws BadRequestException if the ticket belongs to another user or the movie session no longer exists.
+     * @throws ConflictException if the ticket has already been used.
+     */
+    async useTicket(command: UseTicketCommand): Promise<Ticket> {
+        const {userId, ticketId} = command;
+
+        // Find the ticket
+        const ticket = await this.ticketRepository.findById(ticketId);
+        if (!ticket) {
+            throw new NotFoundException(`Ticket ${ticketId} not found`);
+        }
+
+        // Verify ticket ownership
+        if (ticket.getUserId() !== userId) {
+            throw new BadRequestException('Ticket belongs to another user');
+        }
+
+        // Ckeck if ticket has already been used
+        if (ticket.isUsed()) {
+            throw new ConflictException('Ticket has already been used');
+        }
+
+        // Verify the movie and session still eexists
+        const movie = await this.movieService.getMovieById(ticket.getMovieId());
+        const session = movie.getSession(ticket.getSessionId());
+        if (!session) {
+            throw new BadRequestException('Movie session no longer exists');
+        }
+
+        // Mark ticket as used
+        ticket.useTicket();
+        return await this.ticketRepository.save(ticket);
+    }
+
+   
+    /**
+     * Retrieves all tickets associated with a specific user.
+     * 
+     * This method first verifies that the user exists.
+     * If the user is found, it returns a list of tickets belonging to the user.
+     * 
+     * @param userId The ID of the user whose tickets are being retrieved.
+     * @returns A promise that resolves to an array of Ticket objects for the user.
+     * @throws NotFoundException if the user does not exist.
+     */
+    async getUserTickets(userId: string): Promise<Ticket[]> {
+        // Verify user exists
+        await this.userService.getUserById(userId);
+        return await this.ticketRepository.findByUser(userId);
+    }
+
+    /**
+     * Retrieves all unused tickets associated with a specific user.
+     * 
+     * This method first verifies that the user exists.
+     * If the user is found, it returns a list of tickets belonging to the user that have not been used.
+     * 
+     * @param userId The ID of the user whose tickets are being retrieved.
+     * @returns A promise that resolves to an array of Ticket objects for the user that have not been used.
+     * @throws NotFoundException if the user does not exist.
+     */
+    async getUserUnusedTickets(userId: string): Promise<Ticket[]> {
+        // Verify user exists
+        await this.userService.getUserById(userId);
+        return await this.ticketRepository.findUnusedTicketsByUser(userId);
+    }
+
+    /**
+     * Retrieves all tickets associated with a specific user that have been used(Watch history).
+     * 
+     * This method first verifies that the user exists.
+     * If the user is found, it returns a list of tickets belonging to the user which have been used.
+     * 
+     * @param userId The ID of the user whose tickets are being retrieved.
+     * @returns A promise that resolves to an array of Ticket objects that have been used by the user.
+     * @throws NotFoundException if the user does not exist.
+     */
+    async getUserWatchHistory(userId: string): Promise<Ticket[]> {
+        // verify user exists
+        await this.userService.getUserById(userId);
+        const tickets = await this.ticketRepository.findUsedTicketsByUser(userId);
+        return tickets;
+    }
+
+    /**
+     * Retrieves a ticket by its ID.
+     * 
+     * This method simply retrieves a ticket by its ID.
+     * 
+     * @param ticketId The ID of the ticket being retrieved.
+     * @returns A promise that resolves to the Ticket object or rejects with a NotFoundException if the ticket does not exist.
+     */
+    async getTicketById(ticketId: string): Promise<Ticket> {
+        const ticket = await this.ticketRepository.findById(ticketId);
+        if (!ticket) {
+            throw new NotFoundException(`Ticket ${ticketId} not found`);
+        }
+        return ticket;
+    }
+
+    /**
+     * This method queries the ticket repository for all tickets related to the given session ID
+     * and returns the count of those tickets.
+     * 
+     * @param sessionId The ID of the session whose ticket count is being retrieved.
+     * @returns A promise that resolves to the number of tickets for the session.
+     */
+
+    async getSessionTicketCount(sessionId: string): Promise<number> {
+        const tickets = await this.ticketRepository.findBySession(sessionId);
+        return tickets.length;
+    }
+}
+```
+
+
+## File: src/modules/ticket/domain/events/ticket-created.event.ts
+```
+export class TicketCreatedEvent {
+    constructor(
+        public readonly ticketId: string,
+        public readonly userId: string,
+        public readonly movieId: string,
+        public readonly sessionId: string
+    ) {}
+}
+```
+
+
+## File: src/modules/ticket/domain/events/ticket-used-event.ts
+```
+export class TicketUsedEvent {
+    constructor(
+        public readonly ticketId: string,
+        public readonly userId: string,
+        public readonly movieId: string
+    ) {}
+}
+```
+
+
+## File: src/modules/ticket/domain/models/ticket.entity.ts
+```
+import { AggregateRoot, IEvent } from "@nestjs/cqrs";
+import { TicketCreatedEvent } from "../events/ticket-created.event";
+import { TicketUsedEvent } from "../events/ticket-used-event";
+
+
+export class Ticket extends AggregateRoot {
+    private readonly _id: string;
+    private readonly _userId: string;
+    private readonly _movieId: string;
+    private readonly _sessionId: string;
+    private readonly _purchaseDate: Date;
+    private _used: boolean;
+    private _usedDate?: Date;
+
+    constructor(
+        id: string,
+        userId: string,
+        movieId: string,
+        sessionId: string,
+        purchaseDate = new Date(),
+        used = false,
+        usedDate?: Date
+    ) {
+        super();
+        this._id = id;
+        this._userId = userId;
+        this._movieId = movieId;
+        this._sessionId = sessionId;
+        this._purchaseDate = purchaseDate;
+        this._used = used;
+        this._usedDate = usedDate;
+
+        this.apply(new TicketCreatedEvent(id, userId, movieId, sessionId));
+    }
+
+    // Getters
+    public getId(): string {
+        return this._id;
+    }
+
+    public getUserId(): string {
+        return this._userId;
+    }
+
+    public getMovieId(): string {
+        return this._movieId;
+    }
+
+    public getSessionId(): string {
+        return this._sessionId;
+    }
+
+    public getPurchaseDate(): Date {
+        return this._purchaseDate;
+    }
+
+    public isUsed(): boolean {
+        return this._used;
+    }
+
+    public getUsedDate(): Date | undefined {
+        return this._usedDate;
+    }
+
+    // Domain methods
+    public useTicket(): void {
+        if (this._used) {
+            throw new Error('Ticket has already been used');
+        }
+
+        this._used = true;
+        this._usedDate = new Date();
+        this.apply(new TicketUsedEvent(this._id, this._userId, this._movieId));
+    }
+
+    // Factory method
+    public static create(
+        id: string,
+        userId: string,
+        movieId: string,
+        sessionId: string
+    ): Ticket {
+        return new Ticket(id, userId, movieId, sessionId);
+    }
+}
+```
+
+
+## File: src/modules/ticket/test/integration/ticket.integration.spec.ts
+```
+import { INestApplication, ValidationPipe } from "@nestjs/common"
+import { ConfigModule } from "@nestjs/config";
+import { Test, TestingModule } from "@nestjs/testing";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { UserTypeormEntity } from "src/modules/auth/adapters/secondary/persistence/user.typeorm-entity";
+import { MovieTypeormEntity } from "src/modules/movie/adapters/secondary/persistence/movie.typeorm-entity";
+import { SessionTypeormEntity } from "src/modules/movie/adapters/secondary/persistence/session.typeorm-entity";
+import { TicketTypeormEntity } from "../../adapters/secondary/persistence/ticket.typeorm-entity";
+import { PassportModule } from "@nestjs/passport";
+import { JwtModule } from "@nestjs/jwt";
+import { AuthModule } from "src/modules/auth/auth.module";
+import { MovieModule } from "src/modules/movie/movie.module";
+import { TicketModule } from "../../ticket.module";
+import * as request from "supertest";
+
+describe('Ticket Integration Tests', () => {
+    let app: INestApplication;
+    let customerToken: string;
+    let managerToken: string;
+    let movieId: string;
+    let sessionId: string;
+    let ticketId: string;
+
+    beforeAll(async () => {
+        const moduleFixture: TestingModule = await Test.createTestingModule({
+            imports: [
+                ConfigModule.forRoot({
+                    isGlobal: true,
+                    envFilePath: '.env.test'
+                }),
+                TypeOrmModule.forRoot({
+                    type: 'sqlite',
+                    database: ':memory:',
+                    entities: [MovieTypeormEntity, SessionTypeormEntity, UserTypeormEntity, TicketTypeormEntity],
+                    synchronize: true,
+                }),
+                PassportModule.register({ defaultStrategy: 'jwt' }),
+                JwtModule.register({
+                    secret: '19d83ec3dc9d1a50763810d3719d8558df831410933395341035d3fa9b8d14dc',
+                    signOptions: { expiresIn: '1h' }
+                }),
+                AuthModule,
+                MovieModule,
+                TicketModule
+            ]
+        }).compile();
+
+        app = moduleFixture.createNestApplication();
+        app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+        await app.init();
+
+        // Set up test data
+        // Register and login users for testing
+        await request(app.getHttpServer())
+            .post('/auth/register')
+            .send({
+                username: 'testmanager',
+                password: 'Password123!',
+                age: 30,
+                role: 'manager'
+            });
+
+        const managerLogin = await request(app.getHttpServer())
+            .post('/auth/login')
+            .send({
+                username: 'testmanager',
+                password: 'Password123!'
+            });
+        managerToken = managerLogin.body.accessToken;
+
+        await request(app.getHttpServer())
+            .post('/auth/register')
+            .send({
+                username: 'testcustomer',
+                password: 'Password123!',
+                age: 15,
+                role: 'customer'
+            });
+
+        const customerLogin = await request(app.getHttpServer())
+            .post('/auth/login')
+            .send({
+                username: 'testcustomer',
+                password: 'Password123!'
+            });
+        customerToken = customerLogin.body.accessToken;
+
+        // Create a test movie
+        const movieResponse = await request(app.getHttpServer())
+            .post('/movies')
+            .set('Authorization', `Bearer ${managerToken}`)
+            .send({
+                name: 'Test Movie',
+                ageRestriction: 12
+            });
+
+        movieId = movieResponse.body.id;
+
+        // Add a session to the movie
+        const sessionResponse = await request(app.getHttpServer())
+            .post(`/movies/${movieId}/sessions`)
+            .set('Authorization', `Bearer ${managerToken}`)
+            .send({
+                date: '2025-02-01',
+                timeSlot: '14:00-16:00',
+                roomNumber: 1,
+                availableSeats: 100
+            });
+
+        sessionId = sessionResponse.body.sessions[0].id;
+    });
+
+    afterAll(async () => {
+        await app.close();
+    });
+
+    describe('Ticket Endpoints', () => {
+        describe('POST /tickets/buy', () => {
+            it('should successfully buy a ticket', async () => {
+                const response = await request(app.getHttpServer())
+                    .post('/tickets/buy')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .send({
+                        movieId,
+                        sessionId
+                    })
+                    .expect(201);
+
+                expect(response.body).toHaveProperty('id');
+                expect(response.body.movieId).toBe(movieId);
+                expect(response.body.sessionId).toBe(sessionId);
+                expect(response.body).toHaveProperty('purchaseDate');
+
+                ticketId = response.body.id;
+            });
+
+            it('should prevent buying duplicate tickets', async () => {
+                await request(app.getHttpServer())
+                    .post('/tickets/buy')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .send({
+                        movieId,
+                        sessionId
+                    })
+                    .expect(409) // conflict
+            });
+
+            it('should reject invalid movie ID', async () => {
+                await request(app.getHttpServer())
+                    .post('/tickets/buy')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .send({
+                        movieId: 'invalid-movie-id',
+                        sessionId
+                    })
+                    .expect(404); // Not Found
+            });
+        });
+
+        describe('POST /tickets/:id/use - Use a ticket', () => {
+            it('should successfully use a ticket', async () => {
+                const response = await request(app.getHttpServer())
+                    .post(`/tickets/${ticketId}/use`)
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .expect(200);
+
+                expect(response.body.id).toBe(ticketId);
+                expect(response.body).toHaveProperty('usedDate');
+            });
+
+            it('should prevent using ticket twice', async () => {
+                await request(app.getHttpServer())
+                    .post(`/tickets/${ticketId}/use`)
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .expect(409); // Conflict
+            });
+
+            it('should reject invalid ticket ID', async () => {
+                await request(app.getHttpServer())
+                    .post('/tickets/invalid-ticket-id/use')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .expect(404); // Not Found
+            });
+        });
+
+        describe('GET /tickets/history - Get watch history', () => {
+            it('should return watch history', async () => {
+                const response = await request(app.getHttpServer())
+                    .get('/tickets/history')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .expect(200);
+
+                expect(Array.isArray(response.body)).toBe(true);
+                expect(response.body.length).toBeGreaterThan(0);
+                expect(response.body[0].id).toBe(ticketId);
+                expect(response.body[0]).toHaveProperty('usedDate');
+            });
+        });
+
+        describe('GET /tickets/unused - Get unused tickets', () => {
+            it('should return unused tickets', async () => {
+                const response = await request(app.getHttpServer())
+                    .get('/tickets/unused')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .expect(200);
+
+                expect(Array.isArray(response.body)).toBe(true);
+                // Since we used our only ticket, unused tickets should be empty
+                expect(response.body.length).toBe(0);
+            });
+        });
+
+        describe('Authentication and Authorization', () => {
+            it('should reject requests without authentication', async () => {
+                await request(app.getHttpServer())
+                    .get('/tickets/history')
+                    .expect(401); // Unauthorized
+            });
+
+            it('should reject requests with invalid token', async () => {
+                await request(app.getHttpServer())
+                    .get('/tickets/history')
+                    .set('Authorization', 'Bearer invalid-token')
+                    .expect(401); // Unauthorized
+            });
+        });
+    })
+})
+```
+
+
+## File: src/modules/ticket/test/unit/application/ticket.service.spec.ts
+```
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { Test, TestingModule } from "@nestjs/testing";
+import { Userservice } from "src/modules/auth/application/services/user.service";
+import { User } from "src/modules/auth/domain/models/user.entity";
+import { MovieService } from "src/modules/movie/application/services/movie.service";
+import { Movie } from "src/modules/movie/domain/models/movie.entity";
+import { BuyTicketCommand } from "src/modules/ticket/application/commands/buy-ticket.command";
+import { UseTicketCommand } from "src/modules/ticket/application/commands/use-ticket.command";
+import { ITicketRepository } from "src/modules/ticket/application/ports/ticket-repository.interface";
+import { TicketService } from "src/modules/ticket/application/services/ticket.service"
+import { Ticket } from "src/modules/ticket/domain/models/ticket.entity";
+
+describe('TicketService', () => {
+    let service: TicketService;
+    let ticketRepository: jest.Mocked<ITicketRepository>;
+    let movieService: jest.Mocked<MovieService>;
+    let userService: jest.Mocked<Userservice>;
+
+    const mockUserId = '123e4567-e89b-12d3-a456-426614174000';
+    const mockMovieId = '123e4567-e89b-12d3-a456-426614174001';
+    const mockSessionId = '123e4567-e89b-12d3-a456-426614174002';
+    const mockTicketId = '123e4567-e89b-12d3-a456-426614174003';
+
+    beforeEach(async () => {
+        const ticketRepositoryMock = {
+            save: jest.fn(),
+            findById: jest.fn(),
+            findByUser: jest.fn(),
+            findByUserAndSession: jest.fn(),
+            findBySession: jest.fn(),
+            findUsedTicketsByUser: jest.fn(),
+            findUnusedTicketsByUser: jest.fn(),
+            delete: jest.fn()
+        }
+
+        const movieServiceMock = {
+            bookSessionSeats: jest.fn(),
+            getMovieById: jest.fn()
+        }
+
+        const userServiceMock = {
+            getUserById: jest.fn()
+        }
+
+        const module: TestingModule = await Test.createTestingModule({
+            providers: [
+                TicketService,
+                {
+                    provide: ITicketRepository,
+                    useValue: ticketRepositoryMock
+                },
+                {
+                    provide: MovieService,
+                    useValue: movieServiceMock
+                },
+                {
+                    provide: Userservice,
+                    useValue: userServiceMock
+                }
+            ]
+        }).compile();
+
+        service = module.get(TicketService);
+        ticketRepository = module.get(ITicketRepository);
+        movieService = module.get(MovieService);
+        userService = module.get(Userservice);
+    });
+
+    describe('buyTicket', () => {
+        const mockUser = {
+            getAge: () => 25,
+        } as User;
+
+        const buyTicketCommand = new BuyTicketCommand(
+            mockUserId,
+            mockMovieId,
+            mockSessionId
+        );
+
+        it('should successfully buy a ticket', async () => {
+            userService.getUserById.mockResolvedValue(mockUser);
+            ticketRepository.findByUserAndSession.mockResolvedValue(null);
+            movieService.bookSessionSeats.mockResolvedValue(undefined);
+            // we need it to return back whatever ticket we passed to save, so we mock implementation
+            ticketRepository.save.mockImplementation((ticket) => Promise.resolve(ticket));
+
+            const result = await service.buyTicket(buyTicketCommand);
+
+            expect(result).toBeDefined();
+            expect(result.getUserId()).toBe(mockUserId);
+            expect(result.getMovieId()).toBe(mockMovieId);
+            expect(result.getSessionId()).toBe(mockSessionId);
+            expect(result.isUsed()).toBe(false);
+        });
+
+        it('should throw ConflictException when a user already has a ticket', async () => {
+            userService.getUserById.mockResolvedValue(mockUser);
+            ticketRepository.findByUserAndSession.mockResolvedValue(new Ticket(mockTicketId, mockUserId, mockMovieId, mockSessionId));
+            movieService.bookSessionSeats.mockResolvedValue(undefined);
+
+            await expect(service.buyTicket(buyTicketCommand))
+                .rejects
+                .toThrow(ConflictException);
+        });
+    });
+
+    describe('useticket', () => {
+        const useTicketCommand = new UseTicketCommand(mockUserId, mockTicketId);
+
+        const mockTicket = new Ticket(
+            mockTicketId,
+            mockUserId,
+            mockMovieId,
+            mockSessionId
+        );
+
+        const mockMovie = {
+            getSession: jest.fn().mockReturnValue({ id: mockSessionId })
+        } as unknown as Movie;
+
+        it('should successfully use a ticket', async () => {
+            // Arrange
+            ticketRepository.findById.mockResolvedValue(mockTicket);
+            movieService.getMovieById.mockResolvedValue(mockMovie);
+            ticketRepository.save.mockImplementation(ticket => Promise.resolve(ticket));
+            expect(mockTicket.isUsed()).toBe(false);
+
+            // Act
+            const result = await service.useTicket(useTicketCommand);
+
+            // Assert
+            expect(result).toBeDefined();
+            expect(result.getUsedDate()).toBeDefined();
+            expect(result.isUsed()).toBe(true);
+        });
+
+        it('should throw NotFoundException when ticket not found', async () => {
+            ticketRepository.findById.mockResolvedValue(null);
+
+            await expect(service.useTicket(useTicketCommand))
+                .rejects
+                .toThrow(NotFoundException);
+        });
+
+        it('should throw BadRequestException when ticket belongs to another user', async () => {
+            const wrongTicket = new Ticket(
+                mockTicketId,
+                'wrong-user-id',
+                mockMovieId,
+                mockSessionId
+            );
+            ticketRepository.findById.mockResolvedValue(wrongTicket);
+
+            await expect(service.useTicket(useTicketCommand))
+                .rejects
+                .toThrow(BadRequestException);
+        });
+
+        it('should throw ConflictException when ticket already used', async () => {
+            const usedTicket = new Ticket(
+                mockTicketId,
+                mockUserId,
+                mockMovieId,
+                mockSessionId
+            );
+            usedTicket.useTicket();
+            ticketRepository.findById.mockResolvedValue(usedTicket);
+
+            await expect(service.useTicket(useTicketCommand))
+                .rejects
+                .toThrow(ConflictException);
+        });
+    });
+
+    describe('getUserTickets', () => {
+        it('should return user tickets', async () => {
+            const mockTickets = [
+                new Ticket(mockTicketId, mockUserId, mockMovieId, mockSessionId)
+            ];
+            userService.getUserById.mockResolvedValue({} as User);
+            ticketRepository.findByUser.mockResolvedValue(mockTickets);
+
+            const result = await service.getUserTickets(mockUserId);
+
+            expect(result).toEqual(mockTickets);
+            expect(ticketRepository.findByUser).toHaveBeenCalledWith(mockUserId);
+        });
+
+        it('should throw NotFoundException when user not found', async () => {
+            userService.getUserById.mockRejectedValue(new NotFoundException());
+
+            await expect(service.getUserTickets(mockUserId))
+                .rejects
+                .toThrow(NotFoundException);
+        });
+    });
+
+    describe('getTicketById', () => {
+        it('should return ticket when found', async () => {
+            const mockTicket = new Ticket(
+                mockTicketId,
+                mockUserId,
+                mockMovieId,
+                mockSessionId
+            );
+            ticketRepository.findById.mockResolvedValue(mockTicket);
+
+            const result = await service.getTicketById(mockTicketId);
+
+            expect(result).toEqual(mockTicket);
+        });
+
+        it('should throw NotFoundException when ticket not found', async () => {
+            ticketRepository.findById.mockResolvedValue(null);
+
+            await expect(service.getTicketById(mockTicketId))
+                .rejects
+                .toThrow(NotFoundException);
+        });
+    });
+
+    describe('getSessionTicketCount', () => {
+        it('should return correct ticket count', async () => {
+            const mockTickets = [
+                new Ticket(mockTicketId, mockUserId, mockMovieId, mockSessionId),
+                new Ticket('ticket-123', 'user-123', 'movie-123', 'session-123')
+            ];
+            ticketRepository.findBySession.mockResolvedValue(mockTickets);
+
+            const result = await service.getSessionTicketCount(mockSessionId);
+
+            expect(result).toBe(2);
+            expect(ticketRepository.findBySession).toHaveBeenCalledWith(mockSessionId);
+        });
+    });
+})
+```
+
+
+## File: src/modules/ticket/test/unit/domain/ticket.entity.spec.ts
+```
+import { TicketUsedEvent } from "src/modules/ticket/domain/events/ticket-used-event";
+import { Ticket } from "src/modules/ticket/domain/models/ticket.entity";
+import {v4 as uuidv4} from "uuid";
+
+describe('Ticket Entity', () => {
+    let ticket: Ticket;
+    const ticketId = uuidv4();
+    const userId = uuidv4();
+    const movieId = uuidv4();
+    const sessionId = uuidv4();
+
+    beforeEach(() => {
+        ticket = Ticket.create(ticketId, userId, movieId, sessionId);
+    });
+
+    describe('create', () => {
+        it('should create a ticket with correct properties', () => {
+            expect(ticket.getId()).toBe(ticketId);
+            expect(ticket.getUserId()).toBe(userId);
+            expect(ticket.getMovieId()).toBe(movieId);
+            expect(ticket.getSessionId()).toBe(sessionId);
+            expect(ticket.isUsed()).toBe(false);
+            expect(ticket.getUsedDate()).toBeUndefined();
+        });
+
+        it('should apply TicketCreatedEvent', () => {
+            const events = ticket.getUncommittedEvents();
+            const event = events[0];
+            expect(event.constructor.name).toBe('TicketCreatedEvent');
+        })
+    });
+
+    describe('useTicket', () => {
+        it('should mark ticket as used', () => {
+            ticket.useTicket();
+
+            expect(ticket.isUsed()).toBe(true);
+            expect(ticket.getUsedDate()).toBeDefined();
+        });
+
+        it('should throw error when using already used ticket', () => {
+            ticket.useTicket();
+
+            expect(() => ticket.useTicket()).toThrow('Ticket has already been used');
+        });
+
+        it('should apply TicketUsedEvent', () => {
+            ticket.useTicket();
+            const events = ticket.getUncommittedEvents();
+            const event = events[1];
+            expect(event.constructor.name).toBe('TicketUsedEvent')
+        })
+    })
+})
+```
+
+
+## File: src/modules/ticket/test/unit/infrastructure/ticket.mapper.spec.ts
+```
+import { TicketMapper } from "src/modules/ticket/adapters/secondary/persistence/ticket.mapper";
+import { Ticket } from "src/modules/ticket/domain/models/ticket.entity";
+import { TicketTypeormEntity } from "src/modules/ticket/adapters/secondary/persistence/ticket.typeorm-entity";
+
+describe('TicketMapper', () => {
+    let mapper: TicketMapper;
+    const mockId = '123e4567-e89b-12d3-a456-426614174000';
+    const mockUserId = '123e4567-e89b-12d3-a456-426614174001';
+    const mockMovieId = '123e4567-e89b-12d3-a456-426614174002';
+    const mockSessionId = '123e4567-e89b-12d3-a456-426614174003';
+    const mockPurchaseDate = new Date('2024-02-23');
+
+    beforeEach(() => {
+        mapper = new TicketMapper();
+    });
+
+    describe('toDomain', () => {
+        it('should return null when entity is null', () => {
+            expect(mapper.toDomain(null as unknown as TicketTypeormEntity)).toBe(null);
+        });
+
+        it('should map unused ticket entity to domain model', () => {
+            const ticketEntity = new TicketTypeormEntity();
+            ticketEntity.id = mockId;
+            ticketEntity.userId = mockUserId;
+            ticketEntity.movieId = mockMovieId;
+            ticketEntity.sessionId = mockSessionId;
+            ticketEntity.purchaseDate = mockPurchaseDate;
+            ticketEntity.used = false;
+            ticketEntity.usedDate = null;
+
+            const ticket = mapper.toDomain(ticketEntity);
+
+            expect(ticket).toBeDefined();
+            expect(ticket?.getId()).toBe(mockId);
+            expect(ticket?.getUserId()).toBe(mockUserId);
+            expect(ticket?.getMovieId()).toBe(mockMovieId);
+            expect(ticket?.getSessionId()).toBe(mockSessionId);
+            expect(ticket?.getPurchaseDate()).toEqual(mockPurchaseDate);
+            expect(ticket?.isUsed()).toBe(false);
+            expect(ticket?.getUsedDate()).toBeUndefined();
+        });
+
+        it('should map used ticket entity to domain model', () => {
+            const usedDate = new Date('2024-02-23');
+            const ticketEntity = new TicketTypeormEntity();
+            ticketEntity.id = mockId;
+            ticketEntity.userId = mockUserId;
+            ticketEntity.movieId = mockMovieId;
+            ticketEntity.sessionId = mockSessionId;
+            ticketEntity.purchaseDate = mockPurchaseDate;
+            ticketEntity.used = true;
+            ticketEntity.usedDate = usedDate;
+
+            const ticket = mapper.toDomain(ticketEntity);
+
+            expect(ticket).toBeDefined();
+            expect(ticket?.getId()).toBe(mockId);
+            expect(ticket?.getUserId()).toBe(mockUserId);
+            expect(ticket?.getMovieId()).toBe(mockMovieId);
+            expect(ticket?.getSessionId()).toBe(mockSessionId);
+            expect(ticket?.getPurchaseDate()).toEqual(mockPurchaseDate);
+            expect(ticket?.isUsed()).toBe(true);
+            expect(ticket?.getUsedDate()).toEqual(usedDate);
+        });
+    });
+
+    describe('toPersistance', () => {
+        it('should map unused ticket domain model to entity', () => {
+            const ticket = new Ticket(
+                mockId,
+                mockUserId,
+                mockMovieId,
+                mockSessionId,
+                mockPurchaseDate,
+                false
+            );
+
+            const entity = mapper.toPersistance(ticket);
+
+            expect(entity).toBeDefined();
+            expect(entity.id).toBe(mockId);
+            expect(entity.userId).toBe(mockUserId);
+            expect(entity.movieId).toBe(mockMovieId);
+            expect(entity.sessionId).toBe(mockSessionId);
+            expect(entity.purchaseDate).toEqual(mockPurchaseDate);
+            expect(entity.used).toBe(false);
+            expect(entity.usedDate).toBeNull();
+        });
+
+        it('should map used ticket domain model to entity', () => {
+            const usedDate = new Date('2024-02-24');
+            const ticket = new Ticket(
+                mockId,
+                mockUserId,
+                mockMovieId,
+                mockSessionId,
+                mockPurchaseDate,
+                true,
+                usedDate
+            );
+
+            const entity = mapper.toPersistance(ticket);
+
+            expect(entity).toBeDefined();
+            expect(entity.id).toBe(mockId);
+            expect(entity.userId).toBe(mockUserId);
+            expect(entity.movieId).toBe(mockMovieId);
+            expect(entity.sessionId).toBe(mockSessionId);
+            expect(entity.purchaseDate).toEqual(mockPurchaseDate);
+            expect(entity.used).toBe(true);
+            expect(entity.usedDate).toEqual(usedDate);
+        });
+    });
+})
+```
+
+
+## File: src/modules/ticket/ticket.module.ts
+```
+import { Module } from "@nestjs/common";
+import { TicketCreatedHandler } from "./application/event-handlers/ticket-created.handler";
+import { TicketUsedHandler } from "./application/event-handlers/ticket-used.handler";
+import { CqrsModule } from "@nestjs/cqrs";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { TicketTypeormEntity } from "./adapters/secondary/persistence/ticket.typeorm-entity";
+import { MovieModule } from "../movie/movie.module";
+import { AuthModule } from "../auth/auth.module";
+import { TicketController } from "./adapters/primary/rest/ticket.controller";
+import { TicketService } from "./application/services/ticket.service";
+import { ITicketRepository } from "./application/ports/ticket-repository.interface";
+import { TypeormTicketRepository } from "./adapters/secondary/persistence/typeorm-ticket.repositoty";
+import { TicketMapper } from "./adapters/secondary/persistence/ticket.mapper";
+
+const eventHandlers = [TicketCreatedHandler, TicketUsedHandler];
+
+@Module({
+    imports: [
+        CqrsModule,
+        TypeOrmModule.forFeature([TicketTypeormEntity]),
+        MovieModule,
+        AuthModule
+    ],
+    controllers: [TicketController],
+    providers: [
+        // Application layer
+        TicketService,
+
+        // Domain layer - Ports implementations (port:adapter)
+        {
+            provide: ITicketRepository,
+            useClass: TypeormTicketRepository
+        },
+
+        // Secondary adapters - Mappers
+        TicketMapper,
+
+        // Event handlers
+        ...eventHandlers
+    ],
+    exports: [TicketService]
+})
+export class TicketModule {}
+```

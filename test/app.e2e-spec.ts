@@ -299,4 +299,115 @@ describe('Movie Management System (e2e)', () => {
         .expect(401);
     });
   });
+
+  describe('Bulk Operations', () => {
+    describe('POST /movies/bulk', () => {
+      it('should create multiple movies successfully', async () => {
+        const response = await request(app.getHttpServer())
+          .post('/movies/bulk')
+          .set('Authorization', `Bearer ${managerToken}`)
+          .send({
+            movies: [
+              { name: 'Bulk Movie 1', ageRestriction: 12 },
+              { name: 'Bulk Movie 2', ageRestriction: 16 }
+            ]
+          })
+          .expect(201);
+
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body).toHaveLength(2);
+        expect(response.body[0]).toHaveProperty('id');
+        expect(response.body[0].name).toBe('Bulk Movie 1');
+        expect(response.body[1]).toHaveProperty('id');
+        expect(response.body[1].name).toBe('Bulk Movie 2');
+
+        // Store movie IDs for the delete test
+        const movieIds = response.body.map(movie => movie.id);
+
+        // Verify movies exist
+        for (const id of movieIds) {
+          const getResponse = await request(app.getHttpServer())
+            .get(`/movies/${id}`)
+            .set('Authorization', `Bearer ${managerToken}`)
+            .expect(200);
+
+          expect(getResponse.body.id).toBe(id);
+        }
+
+        // Delete the movies
+        await request(app.getHttpServer())
+          .delete('/movies/bulk')
+          .set('Authorization', `Bearer ${managerToken}`)
+          .send({ movieIds })
+          .expect(204);
+
+        // Verify movies are deleted
+        for (const id of movieIds) {
+          await request(app.getHttpServer())
+            .get(`/movies/${id}`)
+            .set('Authorization', `Bearer ${managerToken}`)
+            .expect(404);
+        }
+      });
+
+      it('should reject bulk creation by customer', async () => {
+        await request(app.getHttpServer())
+          .post('/movies/bulk')
+          .set('Authorization', `Bearer ${customerToken}`)
+          .send({
+            movies: [
+              { name: 'Customer Movie', ageRestriction: 12 }
+            ]
+          })
+          .expect(403);
+      });
+
+      it('should validate movie data in bulk creation', async () => {
+        await request(app.getHttpServer())
+          .post('/movies/bulk')
+          .set('Authorization', `Bearer ${managerToken}`)
+          .send({
+            movies: [
+              { name: '', ageRestriction: -1 } // Invalid data
+            ]
+          })
+          .expect(400);
+      });
+    });
+
+    describe('DELETE /movies/bulk', () => {
+      it('should handle non-existent movies in bulk deletion', async () => {
+        await request(app.getHttpServer())
+          .delete('/movies/bulk')
+          .set('Authorization', `Bearer ${managerToken}`)
+          .send({
+            movieIds: ['123e4567-e89b-12d3-a456-426614174000']
+          })
+          .expect(404)
+          .expect(res => {
+            expect(res.body.message).toContain('not found');
+          });
+      });
+
+      it('should reject bulk deletion by customer', async () => {
+        await request(app.getHttpServer())
+          .delete('/movies/bulk')
+          .set('Authorization', `Bearer ${customerToken}`)
+          .send({
+            movieIds: ['123e4567-e89b-12d3-a456-426614174000']
+          })
+          .expect(403);
+      });
+
+      it('should validate movieIds in bulk deletion request', async () => {
+        await request(app.getHttpServer())
+          .delete('/movies/bulk')
+          .set('Authorization', `Bearer ${managerToken}`)
+          .send({
+            movieIds: [] // Empty array should be rejected
+          })
+          .expect(400);
+      });
+    });
+  });
 });
