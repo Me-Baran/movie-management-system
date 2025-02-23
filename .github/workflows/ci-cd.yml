@@ -5,7 +5,7 @@ name: Movie Management CI
 
 on:
   push:
-    branches: [ "master", "main", "hexagone" ]
+    branches: [ "master", "main", "hexagone", "movie" ]
   pull_request:
     branches: [ "master", "main" ]
 
