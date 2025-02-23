@@ -204,8 +204,6 @@ describe('Ticket Integration Tests', () => {
                     .set('Authorization', `Bearer ${customerToken}`)
                     .expect(200);
 
-                console.log(response)
-
                 expect(Array.isArray(response.body)).toBe(true);
                 // Since we used our only ticket, unused tickets should be empty
                 expect(response.body.length).toBe(0);
