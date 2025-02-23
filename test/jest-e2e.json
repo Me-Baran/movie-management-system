@@ -9,5 +9,5 @@
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/../src/$1"
   },
-  "setupFiles": ["<rootDir>/jest-setup.js"]
+  "setupFiles": ["<rootDir>/jest-setup.ts"]
 }
