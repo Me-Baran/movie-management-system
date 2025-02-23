@@ -11,6 +11,7 @@ describe('MovieMapper', () => {
     beforeEach(() => {
         mapper = new MovieMapper();
     });
+    
 
     describe('toDomain', () => {
         it('should map TypeORM entity to domain model', () => {
