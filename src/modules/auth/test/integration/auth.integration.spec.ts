@@ -2,14 +2,12 @@ import { INestApplication, ValidationPipe } from "@nestjs/common"
 import { ConfigModule } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { UserTypeormEntity } from "../adapters/secondary/persistence/user.typeorm-entity";
+import { UserTypeormEntity } from "../../adapters/secondary/persistence/user.typeorm-entity";
 import { PassportModule } from "@nestjs/passport";
 import { JwtModule } from "@nestjs/jwt";
-import { AuthModule } from "../auth.module";
+import { AuthModule } from "../../auth.module";
 import * as request from "supertest";
-import passport from "passport";
-import { Reflector } from "@nestjs/core";
-import { RolesGuard } from "../adapters/secondary/security/utils/guards/roles.guard";
+
 
 describe('Auth Integration Tests', () => {
     let app: INestApplication;

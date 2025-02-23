@@ -1,6 +1,6 @@
-import { User } from "../domain/models/user.entity";
-import { Role } from "../domain/models/role.value-object";
-import { Credentials } from "../domain/models/credentials.value-object";
+import { User } from "../../../domain/models/user.entity";
+import { Role } from "../../../domain/models/role.value-object";
+import { Credentials } from "../../../domain/models/credentials.value-object";
 
 describe('User Entity', () => {
     let user: User;

@@ -1,12 +1,12 @@
 import { EventBus } from "@nestjs/cqrs";
 import { ConflictException, UnauthorizedException } from "@nestjs/common";
-import { AuthService } from "../application/services/auth.service";
-import { IUserRepository } from "../application/ports/user-repository.interface";
-import { ITokenService } from "../application/ports/token-service.interface";
-import { IPasswordService } from "../application/ports/password.service.interface";
-import { User } from "../domain/models/user.entity";
-import { LoginCommand } from "../application/commands/login.command";
-import { RegisterUserCommand } from "../application/commands/register-user.command";
+import { AuthService } from "src/modules/auth/application/services/auth.service";
+import { IUserRepository } from "src/modules/auth/application/ports/user-repository.interface";
+import { ITokenService } from "src/modules/auth/application/ports/token-service.interface";
+import { IPasswordService } from "src/modules/auth/application/ports/password.service.interface";
+import { User } from "src/modules/auth/domain/models/user.entity";
+import { LoginCommand } from "src/modules/auth/application/commands/login.command";
+import { RegisterUserCommand } from "src/modules/auth/application/commands/register-user.command";
 import { Test, TestingModule } from "@nestjs/testing";
 
 

@@ -1,4 +1,4 @@
-import { Role } from "../domain/models/role.value-object";
+import { Role } from "src/modules/auth/domain/models/role.value-object";
 
 describe('Role Value Object', () => {
     it('should have predefined roles', () => {
