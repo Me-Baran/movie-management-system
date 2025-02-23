@@ -21,7 +21,7 @@ export class TypeormMovieRepository implements IMovieRepository {
     async save(movie: Movie): Promise<Movie> {
         const movieEntity = this.movieMapper.toPersistence(movie);
         const savedMovie = await this.movieRepository.save(movieEntity);
-        const domainMovie = this.movieMapper.toDomain(movieEntity);
+        const domainMovie = this.movieMapper.toDomain(savedMovie);
 
         if (!domainMovie) {
             throw new Error('Failed to map saved Entity back to domain model');

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { IMovieRepository } from "../ports/movie-repository.interface";
 import { CreateMovieCommand } from "../commands/create-movie.command";
 import { Movie } from "../../domain/models/movie.entity";
@@ -107,5 +107,29 @@ export class MovieService {
 
     async getAllMovies(filter?: Record<string, any>): Promise<Movie[]> {
         return await this.movieRepository.findAll(filter);
+    }
+
+    // Method for use in Ticket module
+    async bookSessionSeats(movieId: string, sessionId: string, numberOfSeats: number, userAge: number) {
+        const movie = await this.movieRepository.findById(movieId);
+        if (!movie) {
+            throw new NotFoundException(`Movie with ID ${movieId} not found`);
+        }
+
+        if (!movie.isAllowedForAge(userAge)) {
+            throw new BadRequestException('User does not meet age requirement');
+        }
+
+        const session = movie.getSession(sessionId);
+        if (!session) {
+            throw new NotFoundException(`Session ${sessionId} not found`);
+        }
+
+        if (!session.hasAvailableSeats(numberOfSeats)) {
+            throw new BadRequestException('Not enough available seats');
+        }
+
+        session.bookSeats(numberOfSeats);
+        await this.movieRepository.save(movie);
     }
 }

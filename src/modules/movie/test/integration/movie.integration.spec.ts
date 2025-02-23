@@ -29,7 +29,6 @@ describe('Movie Integration Tests', () => {
                     database: ':memory:',
                     entities: [MovieTypeormEntity, SessionTypeormEntity, UserTypeormEntity],
                     synchronize: true,
-                    // Enable foreign key support for SQLite
                     extra: {
                         foreign_keys: true
                     }
@@ -49,7 +48,6 @@ describe('Movie Integration Tests', () => {
         await app.init();
 
         // Register and login users for testing
-        // Manager user
         await request(app.getHttpServer())
             .post('/auth/register')
             .send({
@@ -67,7 +65,6 @@ describe('Movie Integration Tests', () => {
             });
         managerToken = managerLogin.body.accessToken;
 
-        // Customer user
         await request(app.getHttpServer())
             .post('/auth/register')
             .send({
@@ -91,165 +88,169 @@ describe('Movie Integration Tests', () => {
     });
 
     describe('Movie Endpoints', () => {
-        it('should create a new movie as manager', async () => {
-            const response = await request(app.getHttpServer())
-                .post('/movies')
-                .set('Authorization', `Bearer ${managerToken}`)
-                .send({
-                    name: 'Test Movie',
-                    ageRestriction: 12
-                })
-                .expect(201);
+        describe('POST /movies - Create a new movie', () => {
+            it('should create a new movie as manager', async () => {
+                const response = await request(app.getHttpServer())
+                    .post('/movies')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        name: 'Test Movie',
+                        ageRestriction: 12
+                    })
+                    .expect(201);
 
-            expect(response.body).toHaveProperty('id');
-            expect(response.body.name).toBe('Test Movie');
-            expect(response.body.ageRestriction).toBe(12);
-            movieId = response.body.id;
+                expect(response.body).toHaveProperty('id');
+                expect(response.body.name).toBe('Test Movie');
+                expect(response.body.ageRestriction).toBe(12);
+                movieId = response.body.id;
+            });
+
+            it('should reject movie creation by customer', async () => {
+                await request(app.getHttpServer())
+                    .post('/movies')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .send({
+                        name: 'Customer Movie',
+                        ageRestriction: 12
+                    })
+                    .expect(403);
+            });
         });
 
-        it('should reject movie creation by customer', async () => {
-            await request(app.getHttpServer())
-                .post('/movies')
-                .set('Authorization', `Bearer ${customerToken}`)
-                .send({
-                    name: 'Customer Movie',
-                    ageRestriction: 12
-                })
-                .expect(403);
+        describe('POST /movies/:id/sessions - Add a session to a movie', () => {
+            it('should add a session to a movie as manager', async () => {
+                const response = await request(app.getHttpServer())
+                    .post(`/movies/${movieId}/sessions`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        date: '2024-12-25',
+                        timeSlot: '14:00-16:00',
+                        roomNumber: 1,
+                        availableSeats: 100
+                    })
+                    .expect(201);
+
+                expect(response.body.sessions).toHaveLength(1);
+                expect(response.body.sessions[0].timeSlot).toBe('14:00-16:00');
+                expect(response.body.sessions[0].roomNumber).toBe(1);
+            });
+
+            it('should reject session creation with invalid time slot', async () => {
+                await request(app.getHttpServer())
+                    .post(`/movies/${movieId}/sessions`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        date: '2024-12-25',
+                        timeSlot: '11:00-13:00',
+                        roomNumber: 1,
+                        availableSeats: 100
+                    })
+                    .expect(400);
+            });
+
+            it('should prevent double booking of room', async () => {
+                await request(app.getHttpServer())
+                    .post(`/movies/${movieId}/sessions`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        date: '2024-12-25',
+                        timeSlot: '14:00-16:00',
+                        roomNumber: 1,
+                        availableSeats: 100
+                    })
+                    .expect(409);
+            });
         });
 
-        it('should add a session to a movie as manager', async () => {
-            const response = await request(app.getHttpServer())
-                .post(`/movies/${movieId}/sessions`)
-                .set('Authorization', `Bearer ${managerToken}`)
-                .send({
-                    date: '2024-12-25',
-                    timeSlot: '14:00-16:00',
-                    roomNumber: 1,
-                    availableSeats: 100
-                })
-                .expect(201);
+        describe('PUT /movies/:id - Update movie details', () => {
+            it('should update movie details as manager', async () => {
+                const response = await request(app.getHttpServer())
+                    .put(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        name: 'Updated Movie Name',
+                        ageRestriction: 16
+                    })
+                    .expect(200);
 
-            expect(response.body.sessions).toHaveLength(1);
-            expect(response.body.sessions[0].timeSlot).toBe('14:00-16:00');
-            expect(response.body.sessions[0].roomNumber).toBe(1);
+                expect(response.body.name).toBe('Updated Movie Name');
+                expect(response.body.ageRestriction).toBe(16);
+            });
         });
 
-        it('should reject session creation with invalid time slot', async () => {
-            await request(app.getHttpServer())
-                .post(`/movies/${movieId}/sessions`)
-                .set('Authorization', `Bearer ${managerToken}`)
-                .send({
-                    date: '2024-12-25',
-                    timeSlot: '11:00-13:00', // Invalid time slot
-                    roomNumber: 1,
-                    availableSeats: 100
-                })
-                .expect(400);
+        describe('GET /movies - List all movies', () => {
+            it('should list all movies with sessions', async () => {
+                const response = await request(app.getHttpServer())
+                    .get('/movies')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(200);
+
+                expect(Array.isArray(response.body)).toBe(true);
+                expect(response.body.length).toBeGreaterThan(0);
+                expect(response.body[0]).toHaveProperty('sessions');
+                expect(Array.isArray(response.body[0].sessions)).toBe(true);
+            });
+
+            it('should filter movies by age restriction for customer', async () => {
+                await request(app.getHttpServer())
+                    .post('/movies')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .send({
+                        name: 'Adult Movie',
+                        ageRestriction: 18
+                    });
+
+                const response = await request(app.getHttpServer())
+                    .get('/movies')
+                    .set('Authorization', `Bearer ${customerToken}`)
+                    .expect(200);
+
+                const adultMovies = response.body.filter(
+                    (movie: any) => movie.ageRestriction > 15
+                );
+                expect(adultMovies).toHaveLength(0);
+            });
+
+            it('should allow sorting movies by name', async () => {
+                const response = await request(app.getHttpServer())
+                    .get('/movies?sortBy=name&sortOrder=ASC')
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(200);
+
+                const names = response.body.map((m: any) => m.name);
+                const sortedNames = [...names].sort();
+                expect(names).toEqual(sortedNames);
+            });
         });
 
-        it('should prevent double booking of room', async () => {
-            // Try to book the same room at the same time
-            await request(app.getHttpServer())
-                .post(`/movies/${movieId}/sessions`)
-                .set('Authorization', `Bearer ${managerToken}`)
-                .send({
-                    date: '2024-12-25',
-                    timeSlot: '14:00-16:00',
-                    roomNumber: 1,
-                    availableSeats: 100
-                })
-                .expect(409);
+        describe('GET /movies/:id - Get movie by ID', () => {
+            it('should get movie by ID', async () => {
+                const response = await request(app.getHttpServer())
+                    .get(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(200);
+
+                expect(response.body.id).toBe(movieId);
+                expect(response.body).toHaveProperty('sessions');
+            });
         });
 
-        it('should update movie details as manager', async () => {
-            const response = await request(app.getHttpServer())
-                .put(`/movies/${movieId}`)
-                .set('Authorization', `Bearer ${managerToken}`)
-                .send({
-                    name: 'Updated Movie Name',
-                    ageRestriction: 16
-                })
-                .expect(200);
+        describe('DELETE /movies/:id - Delete a movie', () => {
+            it('should allow deletion of a movie with sessions', async () => {
+                const movieResponse = await request(app.getHttpServer())
+                    .get(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`);
 
-            expect(response.body.name).toBe('Updated Movie Name');
-            expect(response.body.ageRestriction).toBe(16);
-        });
+                await request(app.getHttpServer())
+                    .delete(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(204);
 
-        it('should list all movies with sessions', async () => {
-            const response = await request(app.getHttpServer())
-                .get('/movies')
-                .set('Authorization', `Bearer ${managerToken}`)
-                .expect(200);
-
-            expect(Array.isArray(response.body)).toBe(true);
-            expect(response.body.length).toBeGreaterThan(0);
-            expect(response.body[0]).toHaveProperty('sessions');
-            expect(Array.isArray(response.body[0].sessions)).toBe(true);
-        });
-
-        it('should filter movies by age restriction for customer', async () => {
-            // Create a movie with high age restriction
-            await request(app.getHttpServer())
-                .post('/movies')
-                .set('Authorization', `Bearer ${managerToken}`)
-                .send({
-                    name: 'Adult Movie',
-                    ageRestriction: 18
-                });
-
-            // Customer (age 15) should not see movies with ageRestriction > 15
-            const response = await request(app.getHttpServer())
-                .get('/movies')
-                .set('Authorization', `Bearer ${customerToken}`)
-                .expect(200);
-
-            const adultMovies = response.body.filter(
-                (movie: any) => movie.ageRestriction > 15
-            );
-            expect(adultMovies).toHaveLength(0);
-        });
-
-        it('should allow sorting movies by name', async () => {
-            const response = await request(app.getHttpServer())
-                .get('/movies?sortBy=name&sortOrder=ASC')
-                .set('Authorization', `Bearer ${managerToken}`)
-                .expect(200);
-
-            const names = response.body.map((m: any) => m.name);
-            const sortedNames = [...names].sort();
-            expect(names).toEqual(sortedNames);
-        });
-
-        // Test getting movie by ID before deletion
-        it('should get movie by ID', async () => {
-            const response = await request(app.getHttpServer())
-                .get(`/movies/${movieId}`)
-                .set('Authorization', `Bearer ${managerToken}`)
-                .expect(200);
-
-            expect(response.body.id).toBe(movieId);
-            expect(response.body).toHaveProperty('sessions');
-        });
-
-        // Delete related sessions first
-        it('should allow deletion of a movie with sessions', async () => {
-            // Get the movie to find its sessions
-            const movieResponse = await request(app.getHttpServer())
-                .get(`/movies/${movieId}`)
-                .set('Authorization', `Bearer ${managerToken}`);
-
-            // Now delete the movie
-            await request(app.getHttpServer())
-                .delete(`/movies/${movieId}`)
-                .set('Authorization', `Bearer ${managerToken}`)
-                .expect(204);
-
-            // Verify movie is deleted
-            await request(app.getHttpServer())
-                .get(`/movies/${movieId}`)
-                .set('Authorization', `Bearer ${managerToken}`)
-                .expect(404);
+                await request(app.getHttpServer())
+                    .get(`/movies/${movieId}`)
+                    .set('Authorization', `Bearer ${managerToken}`)
+                    .expect(404);
+            });
         });
     });
 });
