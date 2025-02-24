@@ -1,4 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
+import { Type } from "class-transformer";
 import { IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export class FilterMoviesDto {
@@ -19,6 +20,7 @@ export class FilterMoviesDto {
     @IsOptional()
     @IsInt()
     @Min(0)
+    @Type(() => Number)
     minAge?: number;
 
     @ApiProperty({
@@ -29,6 +31,7 @@ export class FilterMoviesDto {
     @IsOptional()
     @IsInt()
     @Min(0)
+    @Type(() => Number)
     maxAge?: number;
 
     @ApiProperty({
