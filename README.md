@@ -35,8 +35,10 @@ If we divide submodules by different domain experts, we will have:
 
 2. We add commands which produce these events, the system which the command is invoked on, the policies which are triggered when each event happen. Here for the sake of this project's requirements we only implement part of these events. it will be something like:
 ![Event Storming Flows](documentation/assets/bounded-contexts.png)
-[Image Source](https://medium.com/@samar.benamar/event-storming-the-storm-that-cleans-up-the-mess-b2bb578db7c)
+[Medium Article - Image Source](https://medium.com/@samar.benamar/event-storming-the-storm-that-cleans-up-the-mess-b2bb578db7c)
 
+- a sample register flow would be:
+![Event Storming Flows](documentation/assets/register-flow.png)
 
 This project follows a Hexagonal Architecture (Ports and Adapters) approach within the Domain-Driven Design methodology:
 
