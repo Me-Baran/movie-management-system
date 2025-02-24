@@ -11,7 +11,6 @@ import { UpdateMovieCommand } from "src/modules/movie/application/commands/updat
 import { DeleteMovieCommand } from "src/modules/movie/application/commands/delete-movie.command";
 import { CreateSessionDto } from "../dtos/create-session.dto";
 import { AddSessionCommand } from "src/modules/movie/application/commands/add-session.command";
-import { session } from "passport";
 import { AgeRestriction } from "src/modules/movie/domain/models/age-restriction.value-object";
 import { FilterMoviesDto } from "../dtos/filter-movies.dto";
 import { CurrentUser } from "src/modules/auth/adapters/primary/rest/decorators/current-user.decorator";

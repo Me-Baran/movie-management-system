@@ -11,7 +11,28 @@ This Movie Management System allows:
 - Movie watching (with valid tickets)
 - User watch history tracking
 
-## Architecture Overview
+
+## Architecture Decision
+This project adopts Domain-Driven Design principles. So we have 2 phases for the design:
+- Strategic Design
+- Tactical Design
+
+### Startegic Design
+This step should be done with business experts, but here we simulate the process.
+
+#### a. Identifying the Overall Domain:
+For our Movie Management System, the high-level domain is Cinema Operations Management
+
+#### b. Identifying Subdomains:
+If we divide submodules by different domain experts, we will have:
+- Authentication & security experts (Common subdomain - Auth module)
+- Movie content & event management experts (Core subdomain - Movie module )
+- Sales experts (Supporting subdomain - Ticket module)
+
+#### c. Event Storming:
+1. First we identify all events which could happen in the system:
+![All Events](documentation/assets/all-events.png)
+
 
 This project follows a Hexagonal Architecture (Ports and Adapters) approach within the Domain-Driven Design methodology:
 
