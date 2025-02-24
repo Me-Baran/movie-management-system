@@ -38,7 +38,7 @@ If we divide submodules by different domain experts, we will have:
 [Medium Article - Image Source](https://medium.com/@samar.benamar/event-storming-the-storm-that-cleans-up-the-mess-b2bb578db7c)
 
 - a sample register flow would be:
-![Sample Register Flow](documentation/assets/register-flow.png)
+![Sample Register Flow](documentation/assets/register-user-flow.png)
 
 After identifying all events, commands and policies on events, the strategic design which is done with business experts is finished and we can proceed to technical development phase based on the decided strategic design.
 
