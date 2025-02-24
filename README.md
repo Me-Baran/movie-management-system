@@ -33,6 +33,10 @@ If we divide submodules by different domain experts, we will have:
 1. First we identify all events which could happen in the system:
 ![All Events](documentation/assets/all-events.png)
 
+2. We add commands which produce these events, the system which the command is invoked on, the policies which are triggered when each event happen. Here for the sake of this project's requirements we only implement part of these events. it will be something like:
+![Event Storming Flows](documentation/assets/bounded-contexts.png)
+
+
 
 This project follows a Hexagonal Architecture (Ports and Adapters) approach within the Domain-Driven Design methodology:
 
