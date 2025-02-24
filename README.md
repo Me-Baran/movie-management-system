@@ -101,13 +101,13 @@ This hexagonal architecture implementation follows Domain-Driven Design principl
 
 ![Auth module architecture](documentation/assets/auth-module-architecture.png)
 
+### Movie module architecture
 
+![Movie module architecture](documentation/assets/movie-module-architecture.png)
 
+### Ticket module architecture
 
-
-
-
-
+![Ticket module architecture](documentation/assets/ticket-module-architecture.png)
 
 
 
