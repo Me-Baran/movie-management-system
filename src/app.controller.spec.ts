@@ -15,8 +15,8 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('should return "Movie Management System"', () => {
+      expect(appController.getHello()).toBe('Movie Management System');
     });
   });
 });
