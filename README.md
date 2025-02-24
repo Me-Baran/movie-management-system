@@ -47,7 +47,7 @@ Below is the Buy Ticket process flow demonstrating DDD elements and interrelatio
 
 ![Buy Ticket Flow](documentation/assets/buy-ticket-flow.png)
 
-For a detailed breakdown of all process flows in the app, check out the [Process Flows Documentation](process-flows.md).
+For a detailed breakdown of all process flows in the app, check out the [Process Flows Documentation](PROCESS_FLOWS.md).
 
 
 
