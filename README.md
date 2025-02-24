@@ -286,43 +286,6 @@ Once the application is running, you can access the Swagger documentation at:
 http://localhost:3000/api
 ```
 
-## Deployment to Heroku
-
-Follow these steps to deploy the application to Heroku:
-
-1. Install the Heroku CLI and log in:
-   ```bash
-   npm install -g heroku
-   heroku login
-   ```
-
-2. Create a new Heroku app:
-   ```bash
-   heroku create movie-management-api
-   ```
-
-3. Set up the Heroku PostgreSQL add-on:
-   ```bash
-   heroku addons:create heroku-postgresql:hobby-dev
-   ```
-
-4. Configure environment variables:
-   ```bash
-   heroku config:set NODE_ENV=production
-   heroku config:set JWT_SECRET=your-secret-key-here
-   heroku config:set JWT_EXPIRES_IN=1h
-   ```
-
-5. Deploy the application:
-   ```bash
-   git push heroku main
-   ```
-
-6. Open the application:
-   ```bash
-   heroku open
-   ```
-
 ## Project Structure
 
 ```
@@ -564,6 +527,26 @@ During development, several challenges were addressed:
    - Setting up integration tests with a test database and handling the timestamp format difference between sqlite nad postgres
    - Mocking external dependencies appropriately
 
+
+### Deployment to Heroku (Template)
+
+The repository includes a commented template for automatic deployment to Heroku in the GitHub Actions workflow file. To enable it:
+
+1. Uncomment the deployment job in `.github/workflows/node.js.yml`
+2. Set up the following secrets in your GitHub repository:
+   - `HEROKU_API_KEY`: Your Heroku API key
+   - `HEROKU_APP_NAME`: Your Heroku application name
+   - `HEROKU_EMAIL`: Email associated with your Heroku account
+
+3. The deployment will automatically:
+   - Run after tests pass successfully
+   - Deploy only when changes are pushed to main/master
+   - Build the application for production
+   - Deploy to your Heroku app
+   - (Optional) Run database migrations
+
+This CI/CD pipeline ensures code quality and provides a streamlined path to production deployment.
+
 ## Future Improvements
 
 1. **Caching Layer:** Implement Redis caching for frequently accessed data
@@ -572,6 +555,30 @@ During development, several challenges were addressed:
 4. **Reporting Module:** Advanced analytics for managers
 5. **Microservices Architecture:** Split into microservices for better scalability
 
+
+## Resources and References
+
+This project has been influenced by various resources on Domain-Driven Design and Hexagonal Architecture. Below are some of the key resources that contributed to the architectural decisions:
+
+### Domain-Driven Design
+- [Event Storming — The Storm That Cleans Up The Mess!](https://medium.com/@samar.benamar/event-storming-the-storm-that-cleans-up-the-mess-b2bb578db7c) by Samar Benamar
+
+- [Domain-Driven Design](https://www.youtube.com/watch?v=o-ym035R1eY&list=PLXPfFMrWkdbe8EwRY0oBPHDmC-3oA0bP_)
+- [Domain Driven Design: What You Need To Know](https://www.youtube.com/watch?v=4rhzdZIDX_k&list=PLXPfFMrWkdbe8EwRY0oBPHDmC-3oA0bP_&index=2) by Alex Hyett
+- [Event Storming - what it is and why you should use it with Domain-Driven Design](https://www.youtube.com/watch?v=7LFxWgfJEeI) by Amichai Mantinband
+
+
+### Hexagonal Architecture
+- [Hexagonal Architecture: What You Need To Know](https://www.youtube.com/watch?v=bDWApqAUjEI&list=PLXPfFMrWkdbe8EwRY0oBPHDmC-3oA0bP_&index=3) - by 
+Alex Hyett
+- [Hexagonal Architecture](https://medium.com/ssense-tech/hexagonal-architecture-there-are-always-two-sides-to-every-story-bc0780ed7d9c) by Pablo Martinez
+- [Relatives of Onion Architecture: Hexagonal and Clean Architecture Annotations](https://github.com/xmolecules/jmolecules/discussions/70) by @MahatmaFatalError
+- [Designing Microservices Components using Hexagonal Architecture](https://www.sennder.com/tech/designing-microservices-components-using-hexagonal-architecture)
+
+These resources have been instrumental in shaping the architecture and implementation of this project. I highly recommend them for anyone looking to deepen their understanding of DDD and Hexagonal Architecture.
+
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
