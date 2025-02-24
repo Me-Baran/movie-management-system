@@ -25,7 +25,7 @@ export class RegisterUserDto {
 
     @ApiProperty({
         description: 'User age',
-        example: 18,
+        example: 30,
         minimum: 1
     })
     @IsInt()
