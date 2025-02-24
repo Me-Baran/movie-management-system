@@ -63,11 +63,11 @@ so I decided to hexagonal(Ports and Adapters) architecture, so that our core app
 
 Here is what the main architecture of each subdomain of our app looks like:
 
-![With / Without Interface(port)](documentation/assets/main-architecture.png)
+![Main architecture](documentation/assets/main-architecture.png)
 
 And here is how the architecture fits inside the Nestjs's architecture:
 
-![With / Without Interface(port)](documentation/assets/nestjs-architecture.png)
+![Architecture in Nestjs](documentation/assets/nestjs-architecture.png)
 
 This hexagonal architecture implementation follows Domain-Driven Design principles and employs the CQRS pattern(partially to keep the project simple but organized) through NestJS's event handling system. The architecture consists of several key layers:
 
@@ -95,8 +95,11 @@ This hexagonal architecture implementation follows Domain-Driven Design principl
    - Event handlers handle side effects and cross-module communication
    - Asynchronous processing of business workflows
 
+## Module archtiectures
 
+### Auth module architecture
 
+![Auth module architecture](documentation/assets/auth-module-architecture.png)
 
 
 
