@@ -50,10 +50,16 @@ Some use CQRS, some use Hegagonal architecture, Clean architecture, etc. even fo
 + Keep the project well organised and SIMPLE
 + The project should be adaptable to new technologies (loosely coupled)
 so I decided to hexagonal(Ports and Adapters) architecture, so that our core app does not depend at all on the infrastructure layer technologies, because all our core app knows is it exposes an interface(ports) which the infrastructure(typeorm repository, Passport.js, etc) should implement to communicate with core app services. so we can easily switch database technology or any other infrastructure used without changing anything in the core module. Also this implementation makes our app test friendly, we can mock the respository service easily by implementing the interface. Below is a diagram of the advantages of decoupling with interfaces(ports):
+
 ![With / Without Interface(port)](documentation/assets/ports-interfaces.png)
 
 Here is what the main architecture of each subdomain of our app looks like:
+
 ![With / Without Interface(port)](documentation/assets/main-architecture.png)
+
+And here is how the architecture fits inside the Nestjs's architecture:
+
+![With / Without Interface(port)](documentation/assets/nestjs-architecture.png)
 
 ### Key Components:
 
