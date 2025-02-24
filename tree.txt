@@ -1,0 +1,181 @@
+├── PROCESS_FLOWS.md
+├── README.md
+├── eslint.config.mjs
+├── nest-cli.json
+├── package-lock.json
+├── package.json
+├── src
+│   ├── app.controller.spec.ts
+│   ├── app.controller.ts
+│   ├── app.module.ts
+│   ├── app.service.ts
+│   ├── common
+│   │   ├── filters
+│   │   │   └── http-exception.filter.ts
+│   │   └── interceptors
+│   │       ├── logging.interceptor.ts
+│   │       └── timeout.interceptor.ts
+│   ├── main.ts
+│   └── modules
+│       ├── auth
+│       │   ├── adapters
+│       │   │   ├── primary
+│       │   │   │   ├── dtos
+│       │   │   │   │   ├── login.dto.ts
+│       │   │   │   │   └── register-user.dto.ts
+│       │   │   │   └── rest
+│       │   │   │       ├── auth.controller.ts
+│       │   │   │       ├── decorators
+│       │   │   │       │   └── current-user.decorator.ts
+│       │   │   │       └── user.controller.ts
+│       │   │   └── secondary
+│       │   │       ├── persistence
+│       │   │       │   ├── typeorm-user.repository.ts
+│       │   │       │   ├── user.mapper.ts
+│       │   │       │   └── user.typeorm-entity.ts
+│       │   │       └── security
+│       │   │           ├── jwt-adapter
+│       │   │           │   ├── jwt-auth.guard.ts
+│       │   │           │   ├── jwt-token.service.ts
+│       │   │           │   └── jwt.strategy.ts
+│       │   │           ├── password-adapter
+│       │   │           │   └── bcrypt-password.service.ts
+│       │   │           └── utils
+│       │   │               ├── decorators
+│       │   │               │   └── roles.decorator.ts
+│       │   │               └── guards
+│       │   │                   └── roles.guard.ts
+│       │   ├── application
+│       │   │   ├── commands
+│       │   │   │   ├── login.command.ts
+│       │   │   │   └── register-user.command.ts
+│       │   │   ├── event-handlers
+│       │   │   │   ├── login-failed.handler.ts
+│       │   │   │   └── user-created.handler.ts
+│       │   │   ├── ports
+│       │   │   │   ├── password.service.interface.ts
+│       │   │   │   ├── token-service.interface.ts
+│       │   │   │   └── user-repository.interface.ts
+│       │   │   └── services
+│       │   │       ├── auth.service.ts
+│       │   │       └── user.service.ts
+│       │   ├── auth.module.ts
+│       │   ├── domain
+│       │   │   ├── events
+│       │   │   │   ├── login-failed-event.ts
+│       │   │   │   └── user-created.event.ts
+│       │   │   └── models
+│       │   │       ├── credentials.value-object.ts
+│       │   │       ├── role.value-object.ts
+│       │   │       └── user.entity.ts
+│       │   └── test
+│       │       ├── integration
+│       │       │   └── auth.integration.spec.ts
+│       │       └── unit
+│       │           ├── application
+│       │           │   └── auth.service.spec.ts
+│       │           └── domain
+│       │               ├── role.value-object.spec.ts
+│       │               └── user.entity.spec.ts
+│       ├── movie
+│       │   ├── adapters
+│       │   │   ├── primary
+│       │   │   │   ├── dtos
+│       │   │   │   │   ├── bulk-create-movies.dto.ts
+│       │   │   │   │   ├── bulk-delete-movies.dto.ts
+│       │   │   │   │   ├── create-movie.dto.ts
+│       │   │   │   │   ├── create-session.dto.ts
+│       │   │   │   │   ├── filter-movies.dto.ts
+│       │   │   │   │   └── update-movie.dto.ts
+│       │   │   │   └── rest
+│       │   │   │       └── movie.controller.ts
+│       │   │   └── secondary
+│       │   │       └── persistence
+│       │   │           ├── movie.mapper.ts
+│       │   │           ├── movie.typeorm-entity.ts
+│       │   │           ├── session.typeorm-entity.ts
+│       │   │           └── typeorm-movie.repository.ts
+│       │   ├── application
+│       │   │   ├── commands
+│       │   │   │   ├── add-session.command.ts
+│       │   │   │   ├── bulk-create-movies.command.ts
+│       │   │   │   ├── bulk-delete-movies.command.ts
+│       │   │   │   ├── create-movie.command.ts
+│       │   │   │   ├── delete-movie.command.ts
+│       │   │   │   └── update-movie.command.ts
+│       │   │   ├── event-handlers
+│       │   │   │   ├── movie-created.handler.ts
+│       │   │   │   └── session-created.handler.ts
+│       │   │   ├── ports
+│       │   │   │   └── movie-repository.interface.ts
+│       │   │   └── services
+│       │   │       └── movie.service.ts
+│       │   ├── domain
+│       │   │   ├── events
+│       │   │   │   ├── movie-created.event.ts
+│       │   │   │   └── session-created.event.ts
+│       │   │   └── models
+│       │   │       ├── age-restriction.value-object.ts
+│       │   │       ├── movie.entity.ts
+│       │   │       ├── session.entity.ts
+│       │   │       └── time-slot.value-object.ts
+│       │   ├── movie.module.ts
+│       │   └── test
+│       │       ├── integration
+│       │       │   └── movie.integration.spec.ts
+│       │       └── unit
+│       │           ├── application
+│       │           │   └── movie.service.spec.ts
+│       │           ├── domain
+│       │           │   ├── age-restriction.value-object.spec.ts
+│       │           │   ├── movie.entity.spec.ts
+│       │           │   ├── session.entity.spec.ts
+│       │           │   └── time-slot.value-object.spec.ts
+│       │           └── infrastructure
+│       │               └── movie.mapper.spec.ts
+│       └── ticket
+│           ├── adapters
+│           │   ├── primary
+│           │   │   ├── dtos
+│           │   │   │   └── buy-ticket.dto.ts
+│           │   │   └── rest
+│           │   │       └── ticket.controller.ts
+│           │   └── secondary
+│           │       └── persistence
+│           │           ├── ticket.mapper.ts
+│           │           ├── ticket.typeorm-entity.ts
+│           │           └── typeorm-ticket.repositoty.ts
+│           ├── application
+│           │   ├── commands
+│           │   │   ├── buy-ticket.command.ts
+│           │   │   └── use-ticket.command.ts
+│           │   ├── event-handlers
+│           │   │   ├── ticket-created.handler.ts
+│           │   │   └── ticket-used.handler.ts
+│           │   ├── ports
+│           │   │   └── ticket-repository.interface.ts
+│           │   └── services
+│           │       └── ticket.service.ts
+│           ├── domain
+│           │   ├── events
+│           │   │   ├── ticket-created.event.ts
+│           │   │   └── ticket-used-event.ts
+│           │   └── models
+│           │       └── ticket.entity.ts
+│           ├── test
+│           │   ├── integration
+│           │   │   └── ticket.integration.spec.ts
+│           │   └── unit
+│           │       ├── application
+│           │       │   └── ticket.service.spec.ts
+│           │       ├── domain
+│           │       │   └── ticket.entity.spec.ts
+│           │       └── infrastructure
+│           │           └── ticket.mapper.spec.ts
+│           └── ticket.module.ts
+├── test
+│   ├── app.e2e-spec.ts
+│   ├── jest-e2e.json
+│   └── jest-setup.ts
+├── tsconfig.build.json
+└── tsconfig.json
