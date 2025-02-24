@@ -61,6 +61,31 @@ And here is how the architecture fits inside the Nestjs's architecture:
 
 ![With / Without Interface(port)](documentation/assets/nestjs-architecture.png)
 
+This hexagonal architecture implementation follows Domain-Driven Design principles and employs the CQRS pattern through NestJS's event handling system. The architecture consists of several key layers:
+
+1. Domain Layer (Core)
+   - Contains pure business logic and rules
+   - All domain objects are immutable and encapsulated
+   - Events are triggered by domain state changes
+   - No dependencies on external layers or frameworks
+
+2. Application Layer
+   - Orchestrates domain objects and workflows
+   - Handles command/query separation
+   - Contains event handlers for domain events
+   - Implements use cases through services
+
+3. Interface Adapters
+   - Primary (Driving) Side: Handles incoming requests
+   - Secondary (Driven) Side: Manages external services and persistence
+   - Adapters translate between external and internal formats
+
+4. Event System
+   - Event Bus (@nestjs/cqrs) enables loose coupling between modules
+   - Domain events represent significant state changes
+   - Event handlers handle side effects and cross-module communication
+   - Asynchronous processing of business workflows
+   
 ### Key Components:
 
 1. **Domain Layer (Core):**
