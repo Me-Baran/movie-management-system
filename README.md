@@ -38,9 +38,17 @@ If we divide submodules by different domain experts, we will have:
 [Medium Article - Image Source](https://medium.com/@samar.benamar/event-storming-the-storm-that-cleans-up-the-mess-b2bb578db7c)
 
 - a sample register flow would be:
-![Event Storming Flows](documentation/assets/register-flow.png)
+![Sample Register Flow](documentation/assets/register-flow.png)
 
-After identifying all events, commands and policies on events, the strategic design which is done with business experts is finished and we can proceed to technical development phase based on the decided strategic design. 
+After identifying all events, commands and policies on events, the strategic design which is done with business experts is finished and we can proceed to technical development phase based on the decided strategic design.
+
+## Process Flows
+Below is the Buy Ticket process flow demonstrating DDD elements and interrelation between modules and how each module is doing the part of flow which belongs to the domain subject:
+
+![Buy Ticket Flow](documentation/assets/buy-ticket-flow.png)
+
+For a detailed breakdown of all process flows in the app, check out the [Process Flows Documentation](process-flows.md).
+
 
 
 ### Tactical Design
@@ -61,46 +69,44 @@ And here is how the architecture fits inside the Nestjs's architecture:
 
 ![With / Without Interface(port)](documentation/assets/nestjs-architecture.png)
 
-This hexagonal architecture implementation follows Domain-Driven Design principles and employs the CQRS pattern through NestJS's event handling system. The architecture consists of several key layers:
+This hexagonal architecture implementation follows Domain-Driven Design principles and employs the CQRS pattern(partially to keep the project simple but organized) through NestJS's event handling system. The architecture consists of several key layers:
 
-1. Domain Layer (Core)
+### Key Components:
+1. **Domain Layer (Core):**
    - Contains pure business logic and rules
    - All domain objects are immutable and encapsulated
    - Events are triggered by domain state changes
    - No dependencies on external layers or frameworks
 
-2. Application Layer
+2. **Application Layer:**
    - Orchestrates domain objects and workflows
-   - Handles command/query separation
+   - Handles commands
    - Contains event handlers for domain events
    - Implements use cases through services
 
-3. Interface Adapters
-   - Primary (Driving) Side: Handles incoming requests
-   - Secondary (Driven) Side: Manages external services and persistence
-   - Adapters translate between external and internal formats
+3. **Adapters Layer:**
+   - **Primary (Driving) Side:** Handles incoming requests
+   - **Secondary (Driven) Side:** Manages external services and persistence
+   - **Adapters Mappers:** translate between external and internal formats
 
-4. Event System
-   - Event Bus (@nestjs/cqrs) enables loose coupling between modules
+4. **Event System**
+   - **Event Bus (@nestjs/cqrs)** enables loose coupling between modules
    - Domain events represent significant state changes
    - Event handlers handle side effects and cross-module communication
    - Asynchronous processing of business workflows
-   
-### Key Components:
 
-1. **Domain Layer (Core):**
-   - Contains business entities, value objects, and domain events
-   - Defines ports (interfaces) that the outside world must implement
-   - Houses core business logic
 
-2. **Application Layer:**
-   - Orchestrates use cases through application services
-   - Implements command handlers to process user intents
-   - Coordinates between domain and infrastructure
 
-3. **Adapters Layer:**
-   - **Primary/Driving Adapters:** REST controllers, GraphQL resolvers, DTOs
-   - **Secondary/Driven Adapters:** Database implementations, external service integrations
+
+
+
+
+
+
+
+
+
+
 
 ## Technology Stack
 
@@ -111,7 +117,7 @@ This hexagonal architecture implementation follows Domain-Driven Design principl
 - **Authentication:** JWT, Passport
 - **Testing:** Jest
 - **Documentation:** Swagger/OpenAPI
-- **Architecture Patterns:** Domain-Driven Design, Hexagonal Architecture, CQRS
+- **Architecture Patterns:** Domain-Driven Design, Hexagonal Architecture
 
 ## Getting Started
 
