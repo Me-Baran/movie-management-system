@@ -40,9 +40,20 @@ If we divide submodules by different domain experts, we will have:
 - a sample register flow would be:
 ![Event Storming Flows](documentation/assets/register-flow.png)
 
-This project follows a Hexagonal Architecture (Ports and Adapters) approach within the Domain-Driven Design methodology:
+After identifying all events, commands and policies on events, the strategic design which is done with business experts is finished and we can proceed to technical development phase based on the decided strategic design. 
 
-![Hexagonal Architecture Diagram](https://raw.githubusercontent.com/username/movie-management-system/main/docs/hex-architecture.png)
+
+### Tactical Design
+- challenge:
+There are limitless variations of the approaches taken for Domain Driven Design, specially in the tactical phase.
+Some use CQRS, some use Hegagonal architecture, Clean architecture, etc. even for hexagonal architecture there are lots of variations between the parts and project structures implemented, so we needed to make a decision for what to use, so here I considered our project main requirements:
++ Keep the project well organised and SIMPLE
++ The project should be adaptable to new technologies (loosely coupled)
+so I decided to hexagonal(Ports and Adapters) architecture, so that our core app does not depend at all on the infrastructure layer technologies, because all our core app knows is it exposes an interface(ports) which the infrastructure(typeorm repository, Passport.js, etc) should implement to communicate with core app services. so we can easily switch database technology or any other infrastructure used without changing anything in the core module. Also this implementation makes our app test friendly, we can mock the respository service easily by implementing the interface. Below is a diagram of the advantages of decoupling with interfaces(ports):
+![With / Without Interface(port)](documentation/assets/ports-interfaces.png)
+
+Here is what the main architecture of each subdomain of our app looks like:
+![With / Without Interface(port)](documentation/assets/main-architecture.png)
 
 ### Key Components:
 
