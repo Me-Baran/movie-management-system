@@ -219,50 +219,96 @@ The application implements several security features to protect user data and pr
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Me-Baran/movie-management-system.git
-   cd movie-management-system
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Set up environment variables:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
-
-4. Start the development server:
-   ```bash
-   npm run start:dev
-   ```
-
-### Environment Variables
-
-The application requires the following environment variables:
-
+1. Clone the repository
+```bash
+git clone https://github.com/Me-Baran/movie-management-system.git
+cd movie-management-system
 ```
-# Application
-PORT=3000
-NODE_ENV=development
 
-# Database
+2. Install dependencies
+```bash
+npm install
+```
+
+3. Configure environment variables
+```
+# Database Configuration
 DB_TYPE=postgres
 DB_HOST=localhost
 DB_PORT=5432
 DB_USERNAME=postgres
-DB_PASSWORD=postgres
+DB_PASSWORD=your_password
 DB_NAME=movie_management
 DB_SYNCHRONIZE=true
-DB_LOGGING=true
+DB_LOGGING=false
 
-# JWT Authentication
-JWT_SECRET=your-secret-key-here
+# JWT Configuration
+JWT_SECRET=your_very_secure_jwt_secret_key
 JWT_EXPIRES_IN=1h
+
+# Server Configuration
+PORT=3000
+```
+
+4. Create the database
+Before running the application, make sure to create the PostgreSQL database:
+```bash
+# Connect to PostgreSQL
+psql -U postgres
+
+# Create the database
+CREATE DATABASE movie_management;
+
+# Exit psql
+\q
+```
+
+5. Start the application
+```bash
+npm run start:dev
+```
+
+## Running in Different Environments
+
+The application can run in different environments:
+
+- **Development**:
+  ```bash
+  # Requires a .env.development file
+  npm run start:dev
+  ```
+
+- **Production**:
+  ```bash
+  # Requires a .env.production file
+  npm run start:prod
+  ```
+
+- **Test**:
+  ```bash
+  # Requires a .env.test file
+  npm run test
+  ```
+
+Make sure to create the appropriate database for each environment before running the application. The application will look for the database name specified in your environment configuration.
+
+The API will be available at http://localhost:3000
+Swagger documentation will be available at http://localhost:3000/api
+
+## Production Deployment
+
+When running the application in production mode:
+
+1. Create a production database
+```bash
+# Connect to PostgreSQL
+psql -U postgres
+
+# Create the production database
+CREATE DATABASE movie_management_prod;
+
+# Exit psql
+\q
 ```
 
 For testing, the app uses SQLite in-memory database by default.

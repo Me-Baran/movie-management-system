@@ -16,7 +16,8 @@ import { TicketModule } from './modules/ticket/ticket.module';
     // Configuration module
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: `.env${process.env.NODE_ENV ? '.' + process.env.NODE_ENV : ''}`
+      envFilePath: `.env${process.env.NODE_ENV ? '.' + process.env.NODE_ENV : ''}`,
+      expandVariables: true,
     }),
 
     // Database

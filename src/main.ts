@@ -6,6 +6,7 @@ import * as compression from 'compression';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
+  process.env.NODE_ENV = process.env.NODE_ENV || 'development';
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
@@ -42,7 +43,7 @@ async function bootstrap() {
   // Start the server
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  logger.log(`Application listening on port ${port}`)
+  logger.log(`Application listening on http://localhost:${port} in ${process.env.NODE_ENV} mode`);
 }
 bootstrap();
 
